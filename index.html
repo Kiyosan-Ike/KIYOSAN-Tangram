@@ -41,6 +41,10 @@ svg{width:100%;height:100%;touch-action:none}
 .guide-unused{fill:none;stroke:#5b6475;stroke-width:3.8;stroke-linejoin:round}
 .guide-label{font-size:18px;font-weight:700;fill:#34415a;text-anchor:middle}
 .piece{stroke:rgba(35,49,75,.3);stroke-width:1.6;cursor:grab;filter:drop-shadow(0 5px 6px rgba(35,49,75,.18))}
+.not-started .piece{cursor:default}
+.start-ready{animation:startPulse 1.3s ease-in-out infinite}
+@keyframes startPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.03)}}
+
 .piece:active{cursor:grabbing}.selected{stroke:#111827;stroke-width:3}
 .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
 .row button{flex:1 1 100px}
@@ -152,6 +156,7 @@ svg{width:100%;height:100%;touch-action:none}
     <button id="flip">↔ 裏返す</button><button id="front">⬆ 最前面</button>
     <button id="oneHint" class="orange">1ピースヒント</button>
     <button id="check" class="green">✓ 完成チェック</button>
+    <button id="startBtn" class="green">▶ はじめる</button>
     <button id="reset" class="primary">はじめにもどす</button>
   </div>
   <div id="status" class="status">頂点のすぐ近くをつかむと回転し、それ以外の場所をつかむと移動します。</div>
@@ -171,6 +176,8 @@ const LEVELS=["入門","初級","中級","上級"];
 const ALL_IDS=["L1","L2","M","S1","S2","SQ","P"];
 const board=document.getElementById("board"),gridLayer=document.getElementById("gridLayer"),pieceLayer=document.getElementById("pieceLayer"),hintLayer=document.getElementById("hintLayer"),guideLayer=document.getElementById("guideLayer"),targetLayer=document.getElementById("targetLayer"),status=document.getElementById("status");
 let level="入門",index=0,state={},selected=null,drag=null,hint=false;
+let started=false;
+let scatterAnimating=false;
 let cleared={};
 try{cleared=JSON.parse(localStorage.getItem("tangramCleared")||"{}")}catch(e){cleared={}}
 
@@ -398,6 +405,110 @@ function playCompleteSound(){
 }
 
 
+
+function scatterPieces(){
+  if(scatterAnimating)return;
+  scatterAnimating=true;
+  started=true;
+
+  const targets=[[80,120],[350,120],[620,80],[90,360],[360,360],[630,360],[410,505]];
+  const rotations=[0,90,0,45,135,45,0];
+  const fanOffsets=[-90,-55,-25,0,30,60,90];
+
+  document.getElementById("startBtn").classList.remove("start-ready");
+  board.classList.remove("not-started");
+  status.className="status";
+  status.textContent="ピースがふわっと広がっています。";
+
+  ALL_IDS.forEach((id,i)=>{
+    const q=state[id];
+    if(!q)return;
+
+    const sx=q.x,sy=q.y,sr=q.r;
+    const tx=targets[i][0],ty=targets[i][1],tr=rotations[i];
+    const liftX=sx+fanOffsets[i]*0.18;
+    const liftY=sy-58-Math.abs(fanOffsets[i])*0.08;
+    const arcX=(sx+tx)/2+fanOffsets[i]*0.35;
+    const arcY=Math.min(sy,ty)-95-Math.abs(fanOffsets[i])*0.10;
+
+    const delay=i*65;
+    const duration=980;
+    const begin=performance.now()+delay;
+
+    function bezier(a,b,c,d,t){
+      const u=1-t;
+      return u*u*u*a+3*u*u*t*b+3*u*t*t*c+t*t*t*d;
+    }
+
+    function frame(now){
+      if(now<begin){requestAnimationFrame(frame);return;}
+
+      const t=Math.min(1,(now-begin)/duration);
+
+      if(t<0.22){
+        // 1. 少しだけ上に浮き上がる
+        const p=t/0.22;
+        const e=1-Math.pow(1-p,3);
+        q.x=sx+(liftX-sx)*e;
+        q.y=sy+(liftY-sy)*e;
+        q.r=sr+(tr-sr)*0.18*e;
+      }else if(t<0.86){
+        // 2. 扇状の曲線を描いて飛び散る
+        const p=(t-0.22)/0.64;
+        const e=p*p*(3-2*p);
+        q.x=bezier(liftX,arcX,arcX,tx,e);
+        q.y=bezier(liftY,arcY,ty-36,ty-8,e);
+        q.r=sr+(tr-sr)*(0.18+0.82*e);
+      }else{
+        // 3. 最後にコトンと着地
+        const p=(t-0.86)/0.14;
+        const bounce=Math.sin(p*Math.PI)*12*(1-p);
+        q.x=tx;
+        q.y=ty-8*(1-p)-bounce;
+        q.r=tr;
+      }
+
+      tf(q.el,q);
+
+      if(t<1){
+        requestAnimationFrame(frame);
+      }else{
+        q.x=tx;
+        q.y=ty;
+        q.r=tr;
+        tf(q.el,q);
+
+        const land=document.createElementNS(NS,"animateTransform");
+        land.setAttribute("attributeName","transform");
+        land.setAttribute("type","translate");
+        land.setAttribute("additive","sum");
+        land.setAttribute("dur","0.20s");
+        land.setAttribute("values","0 0; 0 5; 0 0");
+        land.setAttribute("keyTimes","0;0.45;1");
+        land.setAttribute("fill","remove");
+        q.el.appendChild(land);
+        land.beginElement();
+        setTimeout(()=>land.remove(),260);
+
+        if(i===ALL_IDS.length-1){
+          scatterAnimating=false;
+          document.getElementById("startBtn").textContent="↻ もう一度";
+          status.className="status";
+          status.textContent=`7つのピースから、右上の太線で示した${current().used.length}つを使います。`;
+        }
+      }
+    }
+
+    requestAnimationFrame(frame);
+  });
+}
+function restartScatter(){
+  started=false;
+  scatterAnimating=false;
+  load();
+  setTimeout(scatterPieces,180);
+}
+
 function animateToSolution(){
   const preferredOrder=["L1","L2","M","P","SQ","S1","S2"];
   const p=current();
@@ -546,7 +657,9 @@ function load(){
  renderGuide(p);
 
  // 毎回、全7ピースを表示
- const positions=[[35,70],[300,80],[560,95],[80,300],[355,320],[650,300],[420,520]];
+ const clusterPositions=[[350,190],[350,190],[350,190],[350,190],[350,190],[350,190],[350,190]];
+ const scatterPositions=[[80,120],[350,120],[620,80],[90,360],[360,360],[630,360],[410,505]];
+ const positions=started?scatterPositions:clusterPositions;
  ALL_IDS.forEach((id,i)=>{
    const q=positions[i],e=poly(SHAPES[id],"piece");
    e.setAttribute("fill",COLORS[id]);e.dataset.id=id;pieceLayer.appendChild(e);
@@ -562,13 +675,20 @@ function load(){
  });
 
  status.className="status";
- status.textContent=`大きめの7つのピースから、右上の太線で示した${p.used.length}つを使います。`;
+ document.getElementById("startBtn").textContent=started?"↻ もう一度":"▶ はじめる";
+ document.getElementById("startBtn").classList.toggle("start-ready",!started);
+ board.classList.toggle("not-started",!started);
+ status.textContent=started
+   ? `7つのピースから、右上の太線で示した${p.used.length}つを使います。`
+   : "「はじめる」を押すと、正方形のピースが画面全体に広がります。";
  renderProblemGrid();
 }
 function select(id){if(selected&&state[selected])state[selected].el.classList.remove("selected");selected=id;state[id].el.classList.add("selected");pieceLayer.appendChild(state[id].el);status.className="status";status.textContent="選んだピースを動かしたり回転したりできます。"}
 function point(e){const pt=board.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;return pt.matrixTransform(board.getScreenCTM().inverse())}
 function startDrag(e,id){
- e.preventDefault();select(id);
+ e.preventDefault();
+ if(!started||scatterAnimating)return;
+ select(id);
  const p=point(e),q=state[id];
  const verts=SHAPES[id].map(v=>localToBoard(id,v));
  const nearest=Math.min(...verts.map(v=>Math.hypot(p.x-v.x,p.y-v.y)));
@@ -765,7 +885,7 @@ function showOne(){
 document.getElementById("left").onclick=()=>rotate(-45);document.getElementById("right").onclick=()=>rotate(45);
 document.getElementById("flip").onclick=()=>{if(!selected)return warn("先にピースを選んでください。");state[selected].f*=-1;tf(state[selected].el,state[selected]);snap(selected)};
 document.getElementById("front").onclick=()=>{if(!selected)return warn("先にピースを選んでください。");pieceLayer.appendChild(state[selected].el)};
-document.getElementById("check").onclick=check;document.getElementById("oneHint").onclick=showOne;document.getElementById("reset").onclick=load;
+document.getElementById("check").onclick=check;document.getElementById("oneHint").onclick=showOne;document.getElementById("reset").onclick=()=>{started=false;scatterAnimating=false;load()};
 document.getElementById("hint").onclick=()=>{
   hint=!hint;
   load();
@@ -812,6 +932,7 @@ gridSelect.addEventListener("change",e=>applyGridColor(e.target.value));
 
 
 
+document.getElementById("startBtn").onclick=()=>started?restartScatter():scatterPieces();
 document.getElementById("fullscreenBtn").onclick=toggleFullscreen;
 document.getElementById("teacherBtn").onclick=animateToSolution;
 document.getElementById("clearStarsBtn").onclick=clearAllStars;
