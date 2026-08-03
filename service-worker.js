@@ -1,7 +1,9 @@
-const CACHE_NAME = "kiyosan-tangram-v1";
+const CACHE_NAME = "kiyosan-tangram-v2-beta-1";
 const APP_FILES = [
   "./",
   "./index.html",
+  "./style.css",
+  "./script.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
