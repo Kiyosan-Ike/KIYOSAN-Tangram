@@ -28,22 +28,19 @@
     aria-haspopup="dialog" aria-controls="settingsDialog" aria-label="設定を開く">⚙ 設定</button>
 </header>
 <main class="app prototype17-layout">
-<section class="card side side-main" aria-label="問題選択">
-  <section class="side-section level-section" aria-labelledby="levelSectionTitle">
-    <h2 class="side-section-title" id="levelSectionTitle">レベル</h2>
-    <div class="levels" id="levels"></div>
-    <p class="help">レベルを選びましょう。</p>
-  </section>
-
-  <section class="side-section problem-list-section" aria-labelledby="problemListSectionTitle">
-    <h2 class="side-section-title" id="problemListSectionTitle">問題一覧</h2>
-    <div id="problemGrid" class="problem-grid" aria-label="問題一覧"></div>
-    <p class="help">番号と★で達成状況が分かります。</p>
-  </section>
-</section>
-
 <section class="card board-card">
-  <div class="top"><h2>組み立てエリア</h2><span class="legend">完成図を見ながら作りましょう</span></div>
+  <div class="top">
+    <h2>組み立てエリア</h2>
+    <div class="board-top-actions">
+      <span class="legend">完成図を見ながら作りましょう</span>
+      <button id="problemPickerBtn" class="problem-picker-trigger" type="button"
+        aria-haspopup="dialog" aria-controls="problemPickerDialog">
+        問題を選ぶ　<span id="currentProblemLabel">入門 1</span>
+      </button>
+      <button id="startBtn" class="top-action-button green">▶ はじめる</button>
+      <button id="reset" class="top-action-button primary">はじめにもどす</button>
+    </div>
+  </div>
   <div class="boardWrap">
     <aside class="board-target-panel" aria-label="完成図">
 
@@ -149,17 +146,38 @@
         <g id="guideLayer"></g>
         <g id="pieceLayer"></g>
       </svg>
+      <div class="board-corner-actions" aria-label="ピース操作">
+        <button id="undoBtn" type="button" disabled>↶ ひとつ前</button>
+        <button id="flip" type="button">↔ 裏返す</button>
+        <button id="oneHint" class="orange" type="button">1ピースヒント</button>
+      </div>
     </div>
-  </div>
-  <div class="toolbar">
-    <button id="startBtn" class="green">▶ はじめる</button>
-    <button id="reset" class="primary">はじめにもどす</button>
-    <button id="flip">↔ 裏返す</button>
-    <button id="oneHint" class="orange">1ピースヒント</button>
   </div>
   <div id="status" class="status">「はじめる」でピースが広がります。形が完成すると、自動で音が鳴り、ピースが踊ります。</div>
 </section>
 </main>
+<div id="problemPickerDialog" class="modal" role="dialog" aria-modal="true"
+  aria-labelledby="problemPickerTitle" hidden>
+  <div class="modal-backdrop" data-close-problem-picker></div>
+  <div class="modal-panel problem-picker-panel" tabindex="-1">
+    <div class="modal-header">
+      <h2 id="problemPickerTitle">問題を選ぶ</h2>
+      <button id="closeProblemPickerBtn" class="modal-close" type="button"
+        aria-label="問題選択を閉じる">×</button>
+    </div>
+    <div class="problem-picker-content">
+      <section class="side-section level-section" aria-labelledby="levelSectionTitle">
+        <h3 class="side-section-title" id="levelSectionTitle">レベル</h3>
+        <div class="levels" id="levels"></div>
+      </section>
+      <section class="side-section problem-list-section" aria-labelledby="problemListSectionTitle">
+        <h3 class="side-section-title" id="problemListSectionTitle">問題一覧</h3>
+        <div id="problemGrid" class="problem-grid" aria-label="問題一覧"></div>
+        <p class="help">番号と★で達成状況が分かります。</p>
+      </section>
+    </div>
+  </div>
+</div>
 <div id="settingsDialog" class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsDialogTitle" hidden>
   <div class="modal-backdrop" data-close-settings></div>
   <div class="modal-panel" tabindex="-1">

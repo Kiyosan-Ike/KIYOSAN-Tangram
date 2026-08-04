@@ -1905,6 +1905,15 @@ body:not(.ipad-mode) .prototype17-layout .toolbar button{
   line-height:1.1!important;
   white-space:nowrap;
 }
+.prototype17-layout .board-corner-actions #undoBtn{
+  background:#eaf0fb;
+  color:#304b78;
+}
+.prototype17-layout .board-corner-actions #undoBtn:disabled{
+  opacity:.42;
+  cursor:default;
+  box-shadow:none;
+}
 .problem-picker-panel{
   width:min(760px,calc(100vw - 24px));
   max-height:min(82vh,760px);

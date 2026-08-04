@@ -75,7 +75,61 @@ let completionAnnounced=false;
 let autoCheckTimer=0;
 let scatterAnimating=false;
 let cleared={};
+let undoHistory=[];
 try{cleared=JSON.parse(localStorage.getItem("tangramCleared")||"{}")}catch(e){cleared={}}
+
+function capturePieceState(){
+  const pieces={};
+  Object.keys(state).forEach(id=>{
+    const q=state[id];
+    pieces[id]={x:q.x,y:q.y,r:q.r,f:q.f,s:q.s};
+  });
+  return {pieces,selected};
+}
+function pieceStatesDiffer(before,after){
+  const ids=Object.keys(before.pieces);
+  if(ids.length!==Object.keys(after.pieces).length)return true;
+  return ids.some(id=>{
+    const a=before.pieces[id],b=after.pieces[id];
+    return !b||Math.abs(a.x-b.x)>.01||Math.abs(a.y-b.y)>.01||
+      Math.abs(a.r-b.r)>.01||a.f!==b.f||Math.abs(a.s-b.s)>.0001;
+  });
+}
+function updateUndoButton(){
+  const button=document.getElementById("undoBtn");
+  if(button)button.disabled=undoHistory.length===0;
+}
+function clearUndoHistory(){
+  undoHistory=[];
+  updateUndoButton();
+}
+function rememberForUndo(before){
+  if(!before||!pieceStatesDiffer(before,capturePieceState()))return;
+  undoHistory.push(before);
+  if(undoHistory.length>50)undoHistory.shift();
+  updateUndoButton();
+}
+function undoLastOperation(){
+  const previous=undoHistory.pop();
+  if(!previous)return;
+  clearTimeout(autoCheckTimer);
+  completionAnnounced=false;
+  Object.keys(previous.pieces).forEach(id=>{
+    const q=state[id],saved=previous.pieces[id];
+    if(!q||!saved)return;
+    Object.assign(q,saved);
+    tf(q.el,q);
+  });
+  if(selected&&state[selected])state[selected].el.classList.remove("selected");
+  selected=previous.selected&&state[previous.selected]?previous.selected:null;
+  if(selected){
+    state[selected].el.classList.add("selected");
+    pieceLayer.appendChild(state[selected].el);
+  }
+  updateUndoButton();
+  status.className="status";
+  status.textContent="ひとつ前の操作にもどしました。";
+}
 
 function roundedPolygonPath(pts,radius=3.5){
   const corners=pts.map((p,i)=>{
@@ -386,7 +440,7 @@ function renderProblemGrid(){
     const b=document.createElement("button");
     b.className="problem-btn"+(i===index?" active":"")+(isCleared?" cleared":"");
     b.title=isCleared?`問題 ${i+1} クリア済み`:`問題 ${i+1} 未クリア`;
-    b.onclick=()=>{index=i;hintLevel=0;load()};
+    b.onclick=()=>{index=i;hintLevel=0;load();closeProblemPicker()};
 
     const number=document.createElement("span");
     number.className="problem-btn-number";
@@ -421,6 +475,7 @@ function beginGesture(){
   drag=null;
   gesture={
     id:targetId,
+    before:capturePieceState(),
     startAngle:angleBetween(pts[0],pts[1]),
     startDistance:distance(pts[0],pts[1]),
     startR:q.r,
@@ -762,11 +817,14 @@ function renderGuide(p){
  guideLayer.innerHTML="";
 }
 function load(){
+ clearUndoHistory();
  completionAnnounced=false;
  clearTimeout(autoCheckTimer);
  const p=current(),baseScale=Math.min(problemScale(p),1.35),s=baseScale*pieceSizeMultiplier,off=targetOffset(p,s);
  document.getElementById("title").textContent=p.name;
  document.getElementById("count").textContent=`${index+1} / ${currentList().length}`;
+ const currentProblemLabel=document.getElementById("currentProblemLabel");
+ if(currentProblemLabel)currentProblemLabel.textContent=p.name;
  const hintStars="★".repeat(hintLevel)+"☆".repeat(3-hintLevel);
  document.getElementById("hint").textContent=`ヒント　${hintStars}`;
  renderUsedPieces(p);
@@ -886,6 +944,7 @@ function startDrag(e,id){
    drag={
      id,
      mode:"rotate",
+     before:capturePieceState(),
      cx:center.x,
      cy:center.y,
      startAngle:Math.atan2(p.y-center.y,p.x-center.x)*180/Math.PI,
@@ -894,7 +953,7 @@ function startDrag(e,id){
    status.className="status";
    status.textContent="頂点をドラッグして回転しています。";
  }else{
-   drag={id,mode:"move",dx:p.x-q.x,dy:p.y-q.y};
+   drag={id,mode:"move",dx:p.x-q.x,dy:p.y-q.y,before:capturePieceState()};
    status.className="status";
    status.textContent="ピースを移動しています。";
  }
@@ -918,6 +977,7 @@ board.addEventListener("pointermove",e=>{
 },{passive:false});
 board.addEventListener("pointerup",()=>{
  if(drag){
+   const before=drag.before;
    const q=state[drag.id];
    if(drag.mode==="rotate"){
      q.r=Math.round(q.r/45)*45%360;
@@ -929,6 +989,7 @@ board.addEventListener("pointerup",()=>{
    tf(q.el,q);
    smartSnap(drag.id);
    drag=null;
+   rememberForUndo(before);
    scheduleAutoCheck();
  }
  endBoardInteraction();
@@ -969,6 +1030,7 @@ board.addEventListener("pointerup",e=>{
   if(e.pointerType==="touch"){
     touchPoints.delete(e.pointerId);
     if(gesture&&touchPoints.size<2){
+      const before=gesture.before;
       const q=state[gesture.id];
       q.r=Math.round(q.r/45)*45%360;
       const rad=q.r*Math.PI/180;
@@ -978,6 +1040,7 @@ board.addEventListener("pointerup",e=>{
       tf(q.el,q);
       smartSnap(gesture.id);
       gesture=null;
+      rememberForUndo(before);
       scheduleAutoCheck();
     }
     if(touchPoints.size===0&&!drag)endBoardInteraction();
@@ -1017,7 +1080,15 @@ function snap(id){
    status.textContent="ぴったり吸着しました。";
  }
 }
-function rotate(d){if(!selected)return warn("先にピースを選んでください。");state[selected].r=(state[selected].r+d+360)%360;tf(state[selected].el,state[selected]);snap(selected);scheduleAutoCheck()}
+function rotate(d){
+ if(!selected)return warn("先にピースを選んでください。");
+ const before=capturePieceState();
+ state[selected].r=(state[selected].r+d+360)%360;
+ tf(state[selected].el,state[selected]);
+ snap(selected);
+ rememberForUndo(before);
+ scheduleAutoCheck();
+}
 function warn(t){status.className="status warn";status.textContent=t}
 function celebrate(){
  const usedIds=current().used;
@@ -1209,6 +1280,7 @@ function showOne(){
    return centerDistance(q)>30 || angleDiff(q.r,q.target.r)>10 || q.f!==q.target.f;
  });
  if(!ids.length)return check();
+ const before=capturePieceState();
  const id=ids[0];
  if(!hintTargetIsClear(id)&&!clearHintTarget(id)){
    status.className="status warn";
@@ -1218,6 +1290,7 @@ function showOne(){
  const q=state[id],t=q.target;
  Object.assign(q,{x:t.x,y:t.y,r:t.r,f:t.f});
  tf(q.el,q);pieceLayer.appendChild(q.el);
+ rememberForUndo(before);
  status.className="status";status.textContent="1つのピースを正しい場所に置きました。";
  scheduleAutoCheck();
 }
@@ -1231,6 +1304,7 @@ const flipBtn=document.getElementById("flip"); if(flipBtn) flipBtn.onclick=()=>{
   if(selected!=="P"){
     return;
   }
+  const undoBefore=capturePieceState();
   const q=state[selected];
   const before=posePoint(q,[q.c.x,q.c.y]);
   q.f*=-1;
@@ -1239,9 +1313,11 @@ const flipBtn=document.getElementById("flip"); if(flipBtn) flipBtn.onclick=()=>{
   q.y+=before.y-after.y;
   tf(q.el,q);
   snap(selected);
+  rememberForUndo(undoBefore);
   scheduleAutoCheck();
 };
 const oneHintBtn=document.getElementById("oneHint"); if(oneHintBtn) oneHintBtn.onclick=showOne;
+const undoBtn=document.getElementById("undoBtn"); if(undoBtn) undoBtn.onclick=undoLastOperation;
 const resetBtn=document.getElementById("reset"); if(resetBtn) resetBtn.onclick=()=>{started=false;scatterAnimating=false;completionAnnounced=false;load()};
 document.getElementById("hint").onclick=()=>{
   hintLevel=(hintLevel+1)%4;
@@ -1350,6 +1426,35 @@ doneSettingsBtn.addEventListener("click",closeSettings);
 settingsDialog.querySelector("[data-close-settings]").addEventListener("click",closeSettings);
 document.addEventListener("keydown",e=>{
   if(e.key==="Escape"&&!settingsDialog.hidden)closeSettings();
+});
+
+const problemPickerDialog=document.getElementById("problemPickerDialog");
+const problemPickerPanel=problemPickerDialog.querySelector(".problem-picker-panel");
+const problemPickerBtn=document.getElementById("problemPickerBtn");
+const closeProblemPickerBtn=document.getElementById("closeProblemPickerBtn");
+let problemPickerReturnFocus=null;
+function openProblemPicker(){
+  problemPickerReturnFocus=document.activeElement;
+  problemPickerDialog.hidden=false;
+  problemPickerDialog.classList.remove("closing");
+  document.body.classList.add("modal-open");
+  requestAnimationFrame(()=>problemPickerPanel.focus());
+}
+function closeProblemPicker(){
+  if(problemPickerDialog.hidden||problemPickerDialog.classList.contains("closing"))return;
+  problemPickerDialog.classList.add("closing");
+  window.setTimeout(()=>{
+    problemPickerDialog.hidden=true;
+    problemPickerDialog.classList.remove("closing");
+    document.body.classList.remove("modal-open");
+    if(problemPickerReturnFocus&&problemPickerReturnFocus.focus)problemPickerReturnFocus.focus();
+  },180);
+}
+problemPickerBtn.addEventListener("click",openProblemPicker);
+closeProblemPickerBtn.addEventListener("click",closeProblemPicker);
+problemPickerDialog.querySelector("[data-close-problem-picker]").addEventListener("click",closeProblemPicker);
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"&&!problemPickerDialog.hidden)closeProblemPicker();
 });
 
 
