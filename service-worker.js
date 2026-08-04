@@ -1,9 +1,10 @@
-const CACHE_NAME = "kiyosan-tangram-v2-beta-1";
+const CACHE_NAME = "kiyosan-tangram-v2-beta-1-matching-hint-colors";
 const APP_FILES = [
   "./",
   "./index.html",
   "./style.css",
   "./script.js",
+  "./wood-texture-fine.png",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

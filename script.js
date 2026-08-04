@@ -77,7 +77,32 @@ let scatterAnimating=false;
 let cleared={};
 try{cleared=JSON.parse(localStorage.getItem("tangramCleared")||"{}")}catch(e){cleared={}}
 
-function poly(pts,cls){const e=document.createElementNS(NS,"polygon");e.setAttribute("points",pts.map(p=>p.join(",")).join(" "));e.setAttribute("class",cls);return e}
+function roundedPolygonPath(pts,radius=3.5){
+  const corners=pts.map((p,i)=>{
+    const prev=pts[(i-1+pts.length)%pts.length],next=pts[(i+1)%pts.length];
+    const inLen=Math.hypot(prev[0]-p[0],prev[1]-p[1])||1;
+    const outLen=Math.hypot(next[0]-p[0],next[1]-p[1])||1;
+    const r=Math.min(radius,inLen*.18,outLen*.18);
+    return {
+      before:[p[0]+(prev[0]-p[0])*r/inLen,p[1]+(prev[1]-p[1])*r/inLen],
+      point:p,
+      after:[p[0]+(next[0]-p[0])*r/outLen,p[1]+(next[1]-p[1])*r/outLen]
+    };
+  });
+  let d=`M ${corners[0].after[0]} ${corners[0].after[1]}`;
+  for(let i=1;i<=corners.length;i++){
+    const c=corners[i%corners.length];
+    d+=` L ${c.before[0]} ${c.before[1]} Q ${c.point[0]} ${c.point[1]} ${c.after[0]} ${c.after[1]}`;
+  }
+  return `${d} Z`;
+}
+function poly(pts,cls){
+  const rounded=cls.split(/\s+/).includes("piece")||cls.split(/\s+/).includes("used-piece-shape");
+  const e=document.createElementNS(NS,rounded?"path":"polygon");
+  e.setAttribute(rounded?"d":"points",rounded?roundedPolygonPath(pts):pts.map(p=>p.join(",")).join(" "));
+  e.setAttribute("class",cls);
+  return e;
+}
 function renderGrid(){
   gridLayer.innerHTML="";
   const step=25;
@@ -846,10 +871,15 @@ function startDrag(e,id){
  select(id);
  const p=point(e),q=state[id];
  const verts=transformedVertices(id);
- const nearest=Math.min(...verts.map(v=>Math.hypot(p.x-v.x,p.y-v.y)));
+ const isWoodStyle=document.body.classList.contains("piece-style-wood");
+ const rotationVertices=isWoodStyle
+   ? [...verts,...verts.map(v=>({x:v.x+2,y:v.y+8}))]
+   : verts;
+ const nearest=Math.min(...rotationVertices.map(v=>Math.hypot(p.x-v.x,p.y-v.y)));
  const center=localToBoard(id,[q.c.x,q.c.y]);
  // 見た目は変えず、指・Apple Pencil・マウスごとに回転判定を広げる。
- const rotateHitRadius=e.pointerType==="touch"?32:e.pointerType==="pen"?27:21;
+ const baseRotateHitRadius=e.pointerType==="touch"?32:e.pointerType==="pen"?27:21;
+ const rotateHitRadius=baseRotateHitRadius+(isWoodStyle?8:0);
 
  // 最も近い頂点が判定範囲に入ったときは回転。それ以外は移動。
  if(nearest<rotateHitRadius){

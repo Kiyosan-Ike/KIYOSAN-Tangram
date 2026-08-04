@@ -65,34 +65,83 @@
     <div class="board-canvas-stage" aria-label="ピースを組み立てる場所">
       <svg id="board" viewBox="0 0 1000 700">
         <defs>
-          <!-- 元の色を使わず、天然木の色・木目・立体感だけで描くフィルター -->
+          <!-- 実画像を繰り返して、ピース表面へ木目を貼る -->
+          <pattern id="woodPattern" patternUnits="userSpaceOnUse" width="288" height="260">
+            <image href="./wood-texture-fine.png" width="288" height="260"
+              preserveAspectRatio="none" />
+          </pattern>
+          <!-- 実画像を赤みのある焦げ茶色へ着色し、ニス状の光沢と立体感を加えるフィルター -->
           <filter id="woodTexture" x="-20%" y="-20%" width="140%" height="150%"
             color-interpolation-filters="sRGB">
-            <feFlood flood-color="#e5a12f" result="woodBaseColor" />
-            <feComposite in="woodBaseColor" in2="SourceAlpha" operator="in" result="woodBase" />
-            <feTurbulence type="fractalNoise" baseFrequency="0.006 0.12"
-              numOctaves="2" seed="8" result="woodGrain" />
-            <feColorMatrix in="woodGrain" type="saturate" values="0" result="grayGrain" />
-            <feComponentTransfer in="grayGrain" result="strongGrain">
-              <feFuncR type="linear" slope="0.34" intercept="0.66" />
-              <feFuncG type="linear" slope="0.34" intercept="0.66" />
-              <feFuncB type="linear" slope="0.34" intercept="0.66" />
-              <feFuncA type="linear" slope="0.48" />
+            <feColorMatrix in="SourceGraphic" type="matrix"
+              values="0.35 0.14 0.03 0 0.085
+                      0.13 0.18 0.025 0 0.03
+                      0.075 0.08 0.045 0 0.015
+                      0    0    0    1 0" result="brownTexture" />
+            <feComponentTransfer in="brownTexture" result="brighterBrown">
+              <feFuncR type="linear" slope="1.2" />
+              <feFuncG type="linear" slope="1.2" />
+              <feFuncB type="linear" slope="1.2" />
+              <feFuncA type="identity" />
             </feComponentTransfer>
-            <feComposite in="strongGrain" in2="SourceAlpha" operator="in" result="maskedGrain" />
-            <feBlend in="woodBase" in2="maskedGrain" mode="multiply" result="texturedPiece" />
+            <feComposite in="brighterBrown" in2="SourceAlpha" operator="in" result="texturedPiece" />
+            <feFlood flood-color="#fff0dc" flood-opacity="0.22" result="varnishColor" />
+            <feComposite in="varnishColor" in2="SourceAlpha" operator="in" result="varnishCoat" />
+            <feBlend in="texturedPiece" in2="varnishCoat" mode="screen" result="glossyPiece" />
             <feMorphology in="SourceAlpha" operator="erode" radius="1.35" result="innerArea" />
             <feComposite in="SourceAlpha" in2="innerArea" operator="out" result="borderMask" />
             <feFlood flood-color="#4a321c" flood-opacity="0.84" result="borderColor" />
             <feComposite in="borderColor" in2="borderMask" operator="in" result="darkBorder" />
             <feMerge result="outlinedPiece">
-              <feMergeNode in="texturedPiece" />
+              <feMergeNode in="glossyPiece" />
               <feMergeNode in="darkBorder" />
             </feMerge>
-            <feDropShadow in="outlinedPiece" dx="0" dy="3" stdDeviation="0.8"
-              flood-color="#68421f" flood-opacity="0.4" result="pieceThickness" />
-            <feDropShadow in="pieceThickness" dx="0" dy="5" stdDeviation="4"
-              flood-color="#3a2818" flood-opacity="0.18" />
+            <feOffset in="SourceAlpha" dx="0.5" dy="2" result="sideMask1" />
+            <feFlood flood-color="#92552e" result="sideColor1" />
+            <feComposite in="sideColor1" in2="sideMask1" operator="in" result="woodSide1" />
+            <feOffset in="SourceAlpha" dx="1" dy="4" result="sideMask2" />
+            <feFlood flood-color="#784323" result="sideColor2" />
+            <feComposite in="sideColor2" in2="sideMask2" operator="in" result="woodSide2" />
+            <feOffset in="SourceAlpha" dx="1.5" dy="6" result="sideMask3" />
+            <feFlood flood-color="#61351c" result="sideColor3" />
+            <feComposite in="sideColor3" in2="sideMask3" operator="in" result="woodSide3" />
+            <feOffset in="SourceAlpha" dx="2" dy="8" result="sideMask4" />
+            <feFlood flood-color="#492817" result="sideColor4" />
+            <feComposite in="sideColor4" in2="sideMask4" operator="in" result="woodSide4" />
+            <feMerge result="pieceWithThickness">
+              <feMergeNode in="woodSide4" />
+              <feMergeNode in="woodSide3" />
+              <feMergeNode in="woodSide2" />
+              <feMergeNode in="woodSide1" />
+              <feMergeNode in="outlinedPiece" />
+            </feMerge>
+          </filter>
+          <!-- 初期の正方形用：表面の色と木目は同じまま、側面だけを表示しない -->
+          <filter id="woodTextureFlat" x="-5%" y="-5%" width="110%" height="110%"
+            color-interpolation-filters="sRGB">
+            <feColorMatrix in="SourceGraphic" type="matrix"
+              values="0.35 0.14 0.03 0 0.085
+                      0.13 0.18 0.025 0 0.03
+                      0.075 0.08 0.045 0 0.015
+                      0    0    0    1 0" result="flatBrownTexture" />
+            <feComponentTransfer in="flatBrownTexture" result="flatBrighterBrown">
+              <feFuncR type="linear" slope="1.2" />
+              <feFuncG type="linear" slope="1.2" />
+              <feFuncB type="linear" slope="1.2" />
+              <feFuncA type="identity" />
+            </feComponentTransfer>
+            <feComposite in="flatBrighterBrown" in2="SourceAlpha" operator="in" result="flatTexturedPiece" />
+            <feFlood flood-color="#fff0dc" flood-opacity="0.22" result="flatVarnishColor" />
+            <feComposite in="flatVarnishColor" in2="SourceAlpha" operator="in" result="flatVarnishCoat" />
+            <feBlend in="flatTexturedPiece" in2="flatVarnishCoat" mode="screen" result="flatGlossyPiece" />
+            <feMorphology in="SourceAlpha" operator="erode" radius="1.35" result="flatInnerArea" />
+            <feComposite in="SourceAlpha" in2="flatInnerArea" operator="out" result="flatBorderMask" />
+            <feFlood flood-color="#4a321c" flood-opacity="0.84" result="flatBorderColor" />
+            <feComposite in="flatBorderColor" in2="flatBorderMask" operator="in" result="flatDarkBorder" />
+            <feMerge>
+              <feMergeNode in="flatGlossyPiece" />
+              <feMergeNode in="flatDarkBorder" />
+            </feMerge>
           </filter>
         </defs>
         <g id="gridLayer"></g>
