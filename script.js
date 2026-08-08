@@ -27,7 +27,7 @@
   },{passive:false});
 })();
 
-const APP_VERSION = "2.0 Beta 1";
+const APP_VERSION = "2.0";
 document.getElementById("appVersion").textContent = `Ver.${APP_VERSION}`;
 
 /* Prototype 8：Apple Pencilを含むpointer入力でボタンを確実に反応させる */
@@ -67,7 +67,12 @@ P:[[50,150],[150,150],[200,200],[100,200]]
 };
 const LEVELS=["入門","初級","中級","上級"];
 const ALL_IDS=["L1","L2","M","S1","S2","SQ","P"];
-const board=document.getElementById("board"),gridLayer=document.getElementById("gridLayer"),pieceLayer=document.getElementById("pieceLayer"),hintLayer=document.getElementById("hintLayer"),guideLayer=document.getElementById("guideLayer"),targetLayer=document.getElementById("targetLayer"),status=document.getElementById("status");
+const PHOTO_CHALLENGE={
+  level:"写真",name:"写真を元にもどす",used:[...ALL_IDS],
+  poses:Object.fromEntries(ALL_IDS.map(id=>[id,{x:0,y:0,r:0,f:1}])),
+  bounds:[200,200],silhouette:"M 0 0 H 200 V 200 H 0 Z"
+};
+const board=document.getElementById("board"),gridLayer=document.getElementById("gridLayer"),boardTargetLayer=document.getElementById("boardTargetLayer"),pieceLayer=document.getElementById("pieceLayer"),hintLayer=document.getElementById("hintLayer"),guideLayer=document.getElementById("guideLayer"),targetLayer=document.getElementById("targetLayer"),status=document.getElementById("status");
 let level="入門",index=0,state={},selected=null,drag=null,hintLevel=0;
 let pieceSizeMultiplier=Number(localStorage.getItem("tangramPieceSize")||"1");
 let started=false;
@@ -76,6 +81,13 @@ let autoCheckTimer=0;
 let scatterAnimating=false;
 let cleared={};
 let undoHistory=[];
+let soundEffectsEnabled=true;
+let bgmEnabled=false;
+let photoDataUrl="";
+let photoChallengeActive=false;
+let tidyUpActive=false;
+const PHOTO_DB_NAME="kiyosan-tangram-photos";
+const PHOTO_STORE_NAME="saved-photo";
 try{cleared=JSON.parse(localStorage.getItem("tangramCleared")||"{}")}catch(e){cleared={}}
 
 function capturePieceState(){
@@ -124,7 +136,7 @@ function undoLastOperation(){
   selected=previous.selected&&state[previous.selected]?previous.selected:null;
   if(selected){
     state[selected].el.classList.add("selected");
-    pieceLayer.appendChild(state[selected].el);
+    raisePiece(selected);
   }
   updateUndoButton();
   status.className="status";
@@ -160,20 +172,36 @@ function poly(pts,cls){
 function renderGrid(){
   gridLayer.innerHTML="";
   const step=25;
-  for(let x=0;x<=1000;x+=step){
+  // 全画面の縦横比が広い場合にも、左右の余白まで方眼を延長する。
+  for(let x=-1000;x<=2000;x+=step){
     const line=document.createElementNS(NS,"line");
-    line.setAttribute("x1",x);line.setAttribute("y1",0);
-    line.setAttribute("x2",x);line.setAttribute("y2",700);
+    line.setAttribute("x1",x);line.setAttribute("y1",-700);
+    line.setAttribute("x2",x);line.setAttribute("y2",1400);
     line.setAttribute("class","grid-line");
     gridLayer.appendChild(line);
   }
-  for(let y=0;y<=700;y+=step){
+  for(let y=-700;y<=1400;y+=step){
     const line=document.createElementNS(NS,"line");
-    line.setAttribute("x1",0);line.setAttribute("y1",y);
-    line.setAttribute("x2",1000);line.setAttribute("y2",y);
+    line.setAttribute("x1",-1000);line.setAttribute("y1",y);
+    line.setAttribute("x2",2000);line.setAttribute("y2",y);
     line.setAttribute("class","grid-line");
     gridLayer.appendChild(line);
   }
+}
+function updateBoardViewBox(){
+  const fullscreen=Boolean(document.fullscreenElement||document.webkitFullscreenElement||document.body.classList.contains("app-fullscreen"));
+  if(!fullscreen){
+    board.setAttribute("viewBox","-12 -12 1024 724");
+    return;
+  }
+  const stage=board.parentElement?.getBoundingClientRect();
+  if(!stage?.width||!stage?.height)return;
+  const baseWidth=1024,baseHeight=724,ratio=stage.width/stage.height;
+  let width=baseWidth,height=baseHeight;
+  if(ratio>baseWidth/baseHeight)width=baseHeight*ratio;
+  else height=baseWidth/ratio;
+  const x=500-width/2,y=350-height/2;
+  board.setAttribute("viewBox",`${x} ${y} ${width} ${height}`);
 }
 function centroid(pts){return {x:pts.reduce((a,p)=>a+p[0],0)/pts.length,y:pts.reduce((a,p)=>a+p[1],0)/pts.length}}
 function shapeCenter(id){
@@ -183,7 +211,19 @@ function shapeCenter(id){
   return {x:(Math.min(...xs)+Math.max(...xs))/2,y:(Math.min(...ys)+Math.max(...ys))/2};
 }
 function tf(el,p){
-  el.setAttribute("transform",`translate(${p.x} ${p.y}) rotate(${p.r}) scale(${p.s}) scale(${p.f} 1)`)
+  const pieceTransform=(x,y)=>`translate(${x} ${y}) rotate(${p.r}) scale(${p.s}) scale(${p.f} 1)`;
+  el.setAttribute("transform",pieceTransform(p.x,p.y));
+  const offsets=[[.5,2],[1,5],[1.5,8]];
+  p.sides?.forEach((side,i)=>{
+    const offset=offsets[i]||offsets[offsets.length-1];
+    side.setAttribute("transform",pieceTransform(p.x+offset[0],p.y+offset[1]));
+  });
+}
+function raisePiece(id){
+  const q=state[id];
+  if(!q)return;
+  q.sides?.forEach(side=>pieceLayer.appendChild(side));
+  pieceLayer.appendChild(q.el);
 }
 function localToBoard(id,pt){
   const q=state[id],rad=q.r*Math.PI/180;
@@ -290,14 +330,14 @@ function centerPoseAt(id,centerX,centerY,rotation,flip,scale,margin=22){
   return fitPoseInsideBoard(id,pose,margin);
 }
 function scatterCenters(){
-  // Prototype 1-3：組み立てエリア全体へ、重なりにくく平均的に配置する。
+  // 上部に完成図と「使うピース」が入るため、その下へ重ならないように配置する。
   if(pieceSizeMultiplier>=1.5){
-    return [[145,145],[390,145],[635,145],[860,145],[255,495],[500,495],[745,495]];
+    return [[145,285],[390,285],[635,285],[860,285],[255,545],[500,545],[745,545]];
   }
   if(pieceSizeMultiplier>=1.3){
-    return [[135,135],[380,135],[625,135],[865,135],[250,505],[500,505],[750,505]];
+    return [[135,275],[380,275],[625,275],[865,275],[250,535],[500,535],[750,535]];
   }
-  return [[125,125],[375,125],[625,125],[875,125],[245,520],[500,520],[755,520]];
+  return [[125,265],[375,265],[625,265],[875,265],[245,525],[500,525],[755,525]];
 }
 function edgeAngle(a,b){
   return Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI;
@@ -413,22 +453,27 @@ function centerDistance(q){
   return Math.hypot(a.x-b.x,a.y-b.y);
 }
 function currentList(){return PROBLEMS.filter(p=>p.level===level).slice(0,24)}
-function current(){return currentList()[index]}
+function current(){return photoChallengeActive?PHOTO_CHALLENGE:currentList()[index]}
+function usesBoardSilhouette(){return tidyUpActive||document.body.classList.contains("play-mode-overlay")}
 function angleDiff(a,b){return Math.abs(((a-b+180)%360)-180)}
 function problemScale(p){return Math.min(1,540/p.bounds[0],350/p.bounds[1])}
 function targetOffset(p,s){return {x:250+(650-p.bounds[0]*s)/2,y:28+(380-p.bounds[1]*s)/2}}
 
 
 function problemKey(){
-  return `${level}-${index}`;
+  return photoChallengeActive?"photo-challenge":`${level}-${index}`;
 }
 function saveCleared(){
   try{localStorage.setItem("tangramCleared",JSON.stringify(cleared))}catch(e){}
 }
 function markCleared(){
+  if(photoChallengeActive)return;
   cleared[problemKey()]=true;
   saveCleared();
   renderProblemGrid();
+}
+function isCurrentLevelCleared(){
+  return currentList().every((_,i)=>Boolean(cleared[`${level}-${i}`]));
 }
 function renderProblemGrid(){
   const box=document.getElementById("problemGrid");
@@ -438,9 +483,9 @@ function renderProblemGrid(){
   items.forEach((p,i)=>{
     const isCleared=Boolean(cleared[`${level}-${i}`]);
     const b=document.createElement("button");
-    b.className="problem-btn"+(i===index?" active":"")+(isCleared?" cleared":"");
+    b.className="problem-btn"+(!photoChallengeActive&&i===index?" active":"")+(isCleared?" cleared":"");
     b.title=isCleared?`問題 ${i+1} クリア済み`:`問題 ${i+1} 未クリア`;
-    b.onclick=()=>{index=i;hintLevel=0;load();closeProblemPicker()};
+    b.onclick=()=>{photoChallengeActive=false;tidyUpActive=false;document.body.classList.remove("photo-challenge-active");index=i;hintLevel=0;load();closeProblemPicker()};
 
     const number=document.createElement("span");
     number.className="problem-btn-number";
@@ -489,30 +534,188 @@ function beginGesture(){
 
 
 function playCompleteSound(){
+  if(!soundEffectsEnabled)return;
   try{
     const AudioCtx=window.AudioContext||window.webkitAudioContext;
     const ctx=new AudioCtx();
-    const notes=[523.25,659.25,783.99];
-    notes.forEach((freq,i)=>{
+    const master=ctx.createGain();
+    master.gain.value=.72;
+    master.connect(ctx.destination);
+    const now=ctx.currentTime;
+
+    // 「チャッ・チャ・ラ〜ン！」と聞こえる、明るい完成ファンファーレ。
+    const notes=[
+      {freq:523.25,start:0,duration:.13,volume:.19},
+      {freq:659.25,start:.14,duration:.13,volume:.20},
+      {freq:783.99,start:.29,duration:.18,volume:.21},
+      {freq:1046.50,start:.47,duration:.72,volume:.24}
+    ];
+    notes.forEach(note=>{
       const osc=ctx.createOscillator();
       const gain=ctx.createGain();
+      const start=now+note.start;
+      osc.type="triangle";
+      osc.frequency.value=note.freq;
+      gain.gain.setValueAtTime(.0001,start);
+      gain.gain.exponentialRampToValueAtTime(note.volume,start+.018);
+      gain.gain.setValueAtTime(note.volume*.82,start+Math.min(.10,note.duration*.35));
+      gain.gain.exponentialRampToValueAtTime(.0001,start+note.duration);
+      osc.connect(gain);gain.connect(master);
+      osc.start(start);
+      osc.stop(start+note.duration+.03);
+    });
+
+    // 最後の「ラーン」を和音にして、完成時だけ華やかに響かせる。
+    [659.25,783.99].forEach((freq,i)=>{
+      const osc=ctx.createOscillator();
+      const gain=ctx.createGain();
+      const start=now+.47+i*.012;
       osc.type="sine";
       osc.frequency.value=freq;
-      gain.gain.setValueAtTime(0,ctx.currentTime+i*.12);
-      gain.gain.linearRampToValueAtTime(.16,ctx.currentTime+i*.12+.02);
-      gain.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+i*.12+.28);
-      osc.connect(gain);gain.connect(ctx.destination);
-      osc.start(ctx.currentTime+i*.12);
-      osc.stop(ctx.currentTime+i*.12+.3);
+      gain.gain.setValueAtTime(.0001,start);
+      gain.gain.exponentialRampToValueAtTime(.105,start+.025);
+      gain.gain.exponentialRampToValueAtTime(.0001,start+.75);
+      osc.connect(gain);gain.connect(master);
+      osc.start(start);osc.stop(start+.79);
     });
-    setTimeout(()=>ctx.close(),900);
+    setTimeout(()=>ctx.close(),1500);
   }catch(e){}
+}
+
+function playLevelClearSound(){
+  if(!soundEffectsEnabled)return;
+  try{
+    const AudioCtx=window.AudioContext||window.webkitAudioContext;
+    const ctx=new AudioCtx(),master=ctx.createGain(),now=ctx.currentTime;
+    master.gain.value=.62;master.connect(ctx.destination);
+    const melody=[523.25,659.25,783.99,1046.50,783.99,1046.50,1318.51];
+    const starts=[0,.12,.24,.38,.54,.66,.80];
+    melody.forEach((freq,i)=>{
+      const osc=ctx.createOscillator(),gain=ctx.createGain();
+      const start=now+starts[i],long=i===melody.length-1;
+      osc.type=i<3?"triangle":"sine";osc.frequency.value=freq;
+      gain.gain.setValueAtTime(.0001,start);
+      gain.gain.exponentialRampToValueAtTime(long?.19:.13,start+.018);
+      gain.gain.exponentialRampToValueAtTime(.0001,start+(long?.95:.20));
+      osc.connect(gain);gain.connect(master);osc.start(start);osc.stop(start+(long?1:.24));
+    });
+    setTimeout(()=>ctx.close(),2100);
+  }catch(e){}
+}
+
+function showLevelClearCelebration(clearedLevel){
+  const dialog=document.getElementById("levelClearDialog");
+  const title=document.getElementById("levelClearTitle");
+  const message=document.getElementById("levelClearMessage");
+  const button=document.getElementById("levelClearNextBtn");
+  if(!dialog||!title||!message||!button)return;
+  const levelIndex=LEVELS.indexOf(clearedLevel);
+  const nextLevel=LEVELS[levelIndex+1];
+  title.textContent=`${clearedLevel} 全問クリア！`;
+  message.textContent=`${clearedLevel}の問題を、すべて完成させました！`;
+  button.textContent=nextLevel?`${nextLevel}へ進む`:`おめでとう！　とじる`;
+  button.dataset.nextLevel=nextLevel||"";
+  dialog.hidden=false;
+  document.body.classList.add("modal-open");
+  requestAnimationFrame(()=>button.focus());
+  playLevelClearSound();
+}
+function closeLevelClearCelebration(goNext=false){
+  const dialog=document.getElementById("levelClearDialog");
+  const button=document.getElementById("levelClearNextBtn");
+  if(!dialog)return;
+  dialog.hidden=true;
+  document.body.classList.remove("modal-open");
+  const nextLevel=button?.dataset.nextLevel;
+  if(goNext&&nextLevel){
+    level=nextLevel;index=0;hintLevel=0;started=false;
+    buildLevels();load();
+  }
+}
+
+
+// 音源ファイルを使わず、レベルごとの短い旋律を端末内で繰り返し生成する。
+const BGM_TRACKS={
+  "入門":{tempo:88,wave:"sine",melody:[60,64,67,64,62,65,69,67],bass:[48,null,48,null,50,null,48,null]},
+  "初級":{tempo:104,wave:"triangle",melody:[64,67,71,69,67,64,62,64],bass:[52,null,55,null,50,null,52,null]},
+  "中級":{tempo:92,wave:"sine",melody:[57,60,64,62,59,62,65,64],bass:[45,null,48,null,43,null,45,null]},
+  "上級":{tempo:78,wave:"triangle",melody:[55,58,62,60,57,60,63,62],bass:[43,null,46,null,41,null,43,null]}
+};
+let bgmContext=null,bgmMaster=null,bgmTimer=0,bgmStep=0,bgmNextTime=0,bgmTrackLevel=null;
+function midiFrequency(note){return 440*Math.pow(2,(note-69)/12)}
+function scheduleBgmTone(note,time,duration,volume,wave){
+  if(!bgmContext||!bgmMaster||note==null)return;
+  const osc=bgmContext.createOscillator();
+  const gain=bgmContext.createGain();
+  osc.type=wave;
+  osc.frequency.value=midiFrequency(note);
+  gain.gain.setValueAtTime(.0001,time);
+  gain.gain.exponentialRampToValueAtTime(volume,time+.025);
+  gain.gain.exponentialRampToValueAtTime(.0001,time+duration);
+  osc.connect(gain);gain.connect(bgmMaster);
+  osc.start(time);osc.stop(time+duration+.03);
+}
+function scheduleBgm(){
+  if(!bgmContext||!bgmEnabled)return;
+  const track=BGM_TRACKS[bgmTrackLevel]||BGM_TRACKS["入門"];
+  const beat=60/track.tempo;
+  while(bgmNextTime<bgmContext.currentTime+.55){
+    const i=bgmStep%track.melody.length;
+    scheduleBgmTone(track.melody[i],bgmNextTime,beat*.72,.09,track.wave);
+    if(track.bass[i]!=null)scheduleBgmTone(track.bass[i],bgmNextTime,beat*1.45,.045,"sine");
+    bgmStep++;
+    bgmNextTime+=beat;
+  }
+}
+function startBgm(){
+  if(!bgmEnabled)return;
+  try{
+    const AudioCtx=window.AudioContext||window.webkitAudioContext;
+    if(!AudioCtx)return;
+    if(!bgmContext||bgmContext.state==="closed"){
+      bgmContext=new AudioCtx();
+      bgmMaster=bgmContext.createGain();
+      bgmMaster.gain.value=.32;
+      bgmMaster.connect(bgmContext.destination);
+      bgmTrackLevel=level;
+      bgmStep=0;
+      bgmNextTime=bgmContext.currentTime+.06;
+    }
+    bgmContext.resume?.();
+    if(bgmTrackLevel!==level)refreshBgmForLevel();
+    clearInterval(bgmTimer);
+    scheduleBgm();
+    bgmTimer=setInterval(scheduleBgm,120);
+  }catch(e){}
+}
+function stopBgm(){
+  clearInterval(bgmTimer);bgmTimer=0;
+  const ctx=bgmContext;
+  if(ctx&&bgmMaster){
+    try{
+      bgmMaster.gain.cancelScheduledValues(ctx.currentTime);
+      bgmMaster.gain.setValueAtTime(Math.max(bgmMaster.gain.value,.0001),ctx.currentTime);
+      bgmMaster.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+.18);
+      setTimeout(()=>ctx.close().catch(()=>{}),230);
+    }catch(e){}
+  }
+  bgmContext=null;bgmMaster=null;bgmTrackLevel=null;
+}
+function refreshBgmForLevel(){
+  if(!bgmEnabled||!bgmContext)return;
+  bgmTrackLevel=level;
+  bgmStep=0;
+  bgmNextTime=bgmContext.currentTime+.08;
+  clearInterval(bgmTimer);
+  scheduleBgm();
+  bgmTimer=setInterval(scheduleBgm,120);
 }
 
 
 
 
 function playScatterSound(){
+  if(!soundEffectsEnabled)return;
   try{
     const AudioCtx=window.AudioContext||window.webkitAudioContext;
     const ctx=new AudioCtx();
@@ -563,6 +766,9 @@ function playScatterSound(){
 }
 
 function getScatterTargets(){
+  if(usesBoardSilhouette()){
+    return [[120,210],[120,390],[120,570],[880,210],[880,390],[880,570],[790,105]];
+  }
   return scatterCenters();
 }
 
@@ -606,7 +812,9 @@ function scatterPieces(){
           scatterAnimating=false;
           document.getElementById("startBtn").textContent="↻ もう一度";
           status.className="status";
-          status.textContent=`左の「使うピース」を見て、${current().used.length}つのピースで形を作りましょう。`;
+          status.textContent=tidyUpActive
+            ?"中央のケースに合わせて、7つのピースを正方形にもどしましょう。"
+            :`「使うピース」を見て、${current().used.length}つのピースで形を作りましょう。`;
         }
       }
     }
@@ -693,20 +901,28 @@ function animateToSolution(){
 }
 
 function toggleFullscreen(){
+  const dialog=document.getElementById("settingsDialog");
+  if(dialog){
+    dialog.hidden=true;
+    dialog.classList.remove("closing");
+    document.body.classList.remove("modal-open");
+  }
   const isIPadMode=document.body.classList.contains("ipad-mode");
   if(isIPadMode){
     const enabled=document.body.classList.toggle("app-fullscreen");
     document.body.classList.remove("fullscreen-compact");
     const btn=document.getElementById("fullscreenBtn");
     if(btn)btn.textContent=enabled?"⛶ 全画面を終了":"⛶ 全画面";
-    closeSettings?.();
-    [0,60,180,400].forEach(delay=>setTimeout(()=>window.__setTangramAppHeight?.(),delay));
+    [0,60,180,400].forEach(delay=>setTimeout(()=>{window.__setTangramAppHeight?.();updateBoardViewBox()},delay));
     return;
   }
-  if(!document.fullscreenElement){
-    document.documentElement.requestFullscreen?.();
+  const activeFullscreen=document.fullscreenElement||document.webkitFullscreenElement;
+  if(!activeFullscreen){
+    const request=document.documentElement.requestFullscreen||document.documentElement.webkitRequestFullscreen;
+    request?.call(document.documentElement);
   }else{
-    document.exitFullscreen?.();
+    const exit=document.exitFullscreen||document.webkitExitFullscreen;
+    exit?.call(document);
   }
 }
 function clearAllStars(){
@@ -721,7 +937,7 @@ function clearAllStars(){
 
 function buildLevels(){
  const box=document.getElementById("levels");box.innerHTML="";
- LEVELS.forEach(l=>{const b=document.createElement("button");b.textContent=l;b.className="level"+(l===level?" active":"");b.onclick=()=>{level=l;index=0;hintLevel=0;buildLevels();load()};box.appendChild(b)})
+ LEVELS.forEach(l=>{const b=document.createElement("button");b.textContent=l;b.className="level"+(l===level&&!photoChallengeActive?" active":"");b.onclick=()=>{photoChallengeActive=false;tidyUpActive=false;document.body.classList.remove("photo-challenge-active");level=l;index=0;hintLevel=0;buildLevels();load()};box.appendChild(b)})
 }
 function renderUsedPieces(problem){
  const box=document.getElementById("usedPieces");
@@ -729,6 +945,7 @@ function renderUsedPieces(problem){
  box.innerHTML="";
 
  const usedCount=problem.used.length;
+ document.body.dataset.usedCount=String(usedCount);
 
  box.classList.remove(
    "used-count-1","used-count-3","used-count-4","used-count-5","used-count-6",
@@ -784,7 +1001,7 @@ svg.setAttribute("aria-hidden","true");
 
 const previewPoints=previewPointsFor(id);
 
-const shape=poly(previewPoints,"used-piece-shape");shape.setAttribute("fill",COLORS[id]);
+const shape=poly(previewPoints,"used-piece-shape");shape.setAttribute("fill",pieceSurfaceFill(id));
 
 // 全ピースで同じ縮尺を使い、実際の大きさの違いをそのまま見せる。
 const points=previewPoints;
@@ -795,7 +1012,11 @@ const width=(maxX-minX)*commonScale;
 const height=(maxY-minY)*commonScale;
 const tx=40-(minX+maxX)/2*commonScale;
 const ty=30-(minY+maxY)/2*commonScale;
-const previewBoost=usedCount<=5?1.65:usedCount===6?1.4:1.2;
+const compactOverlay=usesBoardSilhouette();
+const compactReference=document.body.classList.contains("play-mode-reference");
+const overlayBoost={1:1.15,2:1.08,3:1,4:.95,5:.9,6:.85,7:.8};
+const referenceBoost={1:1.15,2:1.1,3:1,4:.92,5:.82,6:.76,7:.68};
+const previewBoost=compactOverlay ? overlayBoost[usedCount] : compactReference ? referenceBoost[usedCount] : (usedCount<=5?1.65:usedCount===6?1.4:1.2);
 
 shape.setAttribute("transform",`translate(40 30) scale(${previewBoost}) translate(-40 -30) translate(${tx} ${ty}) scale(${commonScale})`);
    svg.appendChild(shape);
@@ -818,17 +1039,46 @@ function renderGuide(p){
 }
 function load(){
  clearUndoHistory();
+ const tidyCompleteMessage=document.getElementById("tidyCompleteMessage");
+ if(tidyCompleteMessage)tidyCompleteMessage.hidden=true;
  completionAnnounced=false;
  clearTimeout(autoCheckTimer);
- const p=current(),baseScale=Math.min(problemScale(p),1.35),s=baseScale*pieceSizeMultiplier,off=targetOffset(p,s);
- document.getElementById("title").textContent=p.name;
- document.getElementById("count").textContent=`${index+1} / ${currentList().length}`;
+ const p=current(),baseScale=Math.min(problemScale(p),1.35),s=baseScale*pieceSizeMultiplier;
+ document.body.dataset.currentLevel=photoChallengeActive?"写真":level;
+ const overlayMode=usesBoardSilhouette();
+ let off=targetOffset(p,s);
+ if(overlayMode){
+   const vertices=[];
+   p.used.forEach(id=>{
+     const pose=p.poses[id],rad=pose.r*Math.PI/180;
+     SHAPES[id].forEach(([px,py])=>{
+       const x=px*pose.f;
+       vertices.push({
+         x:pose.x+x*Math.cos(rad)-py*Math.sin(rad),
+         y:pose.y+x*Math.sin(rad)+py*Math.cos(rad)
+       });
+     });
+   });
+   const minX=Math.min(...vertices.map(v=>v.x));
+   const minY=Math.min(...vertices.map(v=>v.y));
+   const maxX=Math.max(...vertices.map(v=>v.x));
+   const maxY=Math.max(...vertices.map(v=>v.y));
+   const silhouetteX=(1000-(maxX-minX)*s)/2;
+   const silhouetteY=(700-(maxY-minY)*s)/2;
+   off={x:silhouetteX-minX*s,y:silhouetteY-minY*s};
+ }
+ const restoreTitle=tidyUpActive?"パズルをかたづけよう":p.name;
+ document.getElementById("title").textContent=restoreTitle;
+ document.getElementById("count").textContent=photoChallengeActive?(tidyUpActive?"おかたづけ":"写真パズル"):`${index+1} / ${currentList().length}`;
  const currentProblemLabel=document.getElementById("currentProblemLabel");
- if(currentProblemLabel)currentProblemLabel.textContent=p.name;
+ if(currentProblemLabel)currentProblemLabel.textContent=restoreTitle;
+ const prevButton=document.getElementById("prev"),nextButton=document.getElementById("next");
+ if(prevButton)prevButton.disabled=photoChallengeActive||index<=0;
+ if(nextButton)nextButton.disabled=photoChallengeActive||index>=currentList().length-1;
  const hintStars="★".repeat(hintLevel)+"☆".repeat(3-hintLevel);
  document.getElementById("hint").textContent=`ヒント　${hintStars}`;
  renderUsedPieces(p);
- targetLayer.innerHTML="";hintLayer.innerHTML="";pieceLayer.innerHTML="";guideLayer.innerHTML="";
+ targetLayer.innerHTML="";boardTargetLayer.innerHTML="";hintLayer.innerHTML="";pieceLayer.innerHTML="";guideLayer.innerHTML="";
  state={};selected=null;
 
  // お手本は青灰色のシルエットで表示
@@ -839,7 +1089,24 @@ function load(){
  silhouette.setAttribute("fill-rule","evenodd");
  silhouette.setAttribute("stroke","none");
  silhouette.setAttribute("transform",`translate(${tox} ${toy}) scale(${ts})`);
- targetLayer.appendChild(silhouette);
+ if(overlayMode){
+   if(tidyUpActive){
+     const tidyCase=document.createElementNS(NS,"rect");
+     tidyCase.setAttribute("class","tidy-up-case");
+     tidyCase.setAttribute("x",off.x);tidyCase.setAttribute("y",off.y);
+     tidyCase.setAttribute("width",200*s);tidyCase.setAttribute("height",200*s);
+     boardTargetLayer.appendChild(tidyCase);
+   }
+   // 保存済み外形ではなく正解ピース座標から描くことで、全問題で位置を完全一致させる。
+   p.used.forEach(id=>{
+     const pose=p.poses[id];
+     const boardSilhouettePiece=poly(SHAPES[id],"board-silhouette-piece");
+     boardSilhouettePiece.setAttribute("transform",`translate(${off.x} ${off.y}) scale(${s}) translate(${pose.x} ${pose.y}) rotate(${pose.r}) scale(${pose.f} 1)`);
+     boardTargetLayer.appendChild(boardSilhouettePiece);
+   });
+ }else{
+   targetLayer.appendChild(silhouette);
+ }
 
  // 段階的ヒント：完成図の中に正解ピースの境界を重ねる。
  if(hintLevel>0){
@@ -861,8 +1128,13 @@ function load(){
      const pose=p.poses[id];
      const h=poly(SHAPES[id],`target-hint target-hint-${hintLevel}`);
      if(hintLevel===3)h.setAttribute("fill",COLORS[id]);
-     h.setAttribute("transform",`translate(${tox-minX*ts} ${toy-minY*ts}) scale(${ts}) translate(${pose.x} ${pose.y}) rotate(${pose.r}) scale(${pose.f} 1)`);
-     targetLayer.appendChild(h);
+     if(overlayMode){
+       h.setAttribute("transform",`translate(${off.x} ${off.y}) scale(${s}) translate(${pose.x} ${pose.y}) rotate(${pose.r}) scale(${pose.f} 1)`);
+       boardTargetLayer.appendChild(h);
+     }else{
+       h.setAttribute("transform",`translate(${tox-minX*ts} ${toy-minY*ts}) scale(${ts}) translate(${pose.x} ${pose.y}) rotate(${pose.r}) scale(${pose.f} 1)`);
+       targetLayer.appendChild(h);
+     }
    });
  }
 
@@ -878,7 +1150,13 @@ function load(){
  const positions=started?scatterPositions:clusterPositions;
  ALL_IDS.forEach((id,i)=>{
    const q=positions[i],e=poly(SHAPES[id],"piece");
-   e.setAttribute("fill",COLORS[id]);e.dataset.id=id;pieceLayer.appendChild(e);
+   const sides=[1,2,3].map(depth=>{
+     const side=poly(SHAPES[id],`piece-side piece-side-depth-${depth}`);
+     side.setAttribute("fill",COLORS[id]);
+     pieceLayer.appendChild(side);
+     return side;
+   });
+   e.setAttribute("fill",pieceSurfaceFill(id));e.dataset.id=id;pieceLayer.appendChild(e);
 
    const target=p.used.includes(id)
      ? {x:off.x+p.poses[id].x*s,y:off.y+p.poses[id].y*s,r:p.poses[id].r,f:p.poses[id].f,s:s}
@@ -888,7 +1166,7 @@ function load(){
    // 「はじめにもどす」では7ピースを同じ基準点に置き、元の正方形に戻す。
    // 開始後のばらばら配置だけ、各ピースの実際の外周を使って盤面内へ補正する。
    const fitted=started?centerPoseAt(id,q[0],q[1],initialRotation,1,s,22):{x:q[0],y:q[1]};
-   state[id]={x:fitted.x,y:fitted.y,r:initialRotation,f:1,s:s,el:e,c:centroid(SHAPES[id]),target:target};
+   state[id]={x:fitted.x,y:fitted.y,r:initialRotation,f:1,s:s,el:e,sides,c:centroid(SHAPES[id]),target:target};
    tf(e,state[id]);
    e.addEventListener("pointerdown",ev=>startDrag(ev,id));
    e.addEventListener("click",()=>select(id));
@@ -910,11 +1188,12 @@ function load(){
  document.getElementById("startBtn").classList.toggle("start-ready",!started);
  board.classList.toggle("not-started",!started);
  status.textContent=started
-   ? `左の「使うピース」を見て、${p.used.length}つのピースで形を作りましょう。`
-   : "「はじめる」を押すと、中央の正方形が組み立てエリア全体に広がります。";
+   ? (tidyUpActive?"中央のケースに合わせて、7つのピースを正方形にもどしましょう。":photoChallengeActive?"7つのピースを組み合わせて、元の写真にもどしましょう。":`「使うピース」を見て、${p.used.length}つのピースで形を作りましょう。`)
+   : (tidyUpActive?"ピースを周りへ移動しています。":photoChallengeActive?"「はじめる」を押すと写真が7つのピースに分かれます。":"「はじめる」を押すと、中央の正方形が組み立てエリア全体に広がります。");
  renderProblemGrid();
+ if(bgmEnabled&&bgmContext&&bgmTrackLevel!==level)refreshBgmForLevel();
 }
-function select(id){if(selected&&state[selected])state[selected].el.classList.remove("selected");selected=id;state[id].el.classList.add("selected");pieceLayer.appendChild(state[id].el);status.className="status";status.textContent="選んだピースを動かしたり回転したりできます。"}
+function select(id){if(selected&&state[selected])state[selected].el.classList.remove("selected");selected=id;state[id].el.classList.add("selected");raisePiece(id);status.className="status";status.textContent="選んだピースを動かしたり回転したりできます。"}
 function point(e){const pt=board.createSVGPoint();pt.x=e.clientX;pt.y=e.clientY;return pt.matrixTransform(board.getScreenCTM().inverse())}
 function setBoardInteractionLock(on){
  document.body.classList.toggle("board-interacting",on);
@@ -1074,6 +1353,41 @@ window.addEventListener("blur",()=>{
 function snap(id){
  const q=state[id],t=q.target;
  if(!t)return;
+ const overlayMode=usesBoardSilhouette();
+ if(overlayMode){
+   const compatibleIds=id==="L1"&&state.L2?.target?["L1","L2"]:
+     id==="L2"&&state.L1?.target?["L2","L1"]:
+     id==="S1"&&state.S2?.target?["S1","S2"]:
+     id==="S2"&&state.S1?.target?["S2","S1"]:[id];
+   const actual=transformedVertices(id);
+   const center=points=>({
+     x:points.reduce((sum,p)=>sum+p.x,0)/points.length,
+     y:points.reduce((sum,p)=>sum+p.y,0)/points.length
+   });
+   const actualCenter=center(actual);
+   let best=null;
+   compatibleIds.forEach(targetId=>{
+     const targetPose=state[targetId]?.target;
+     if(!targetPose)return;
+     const target=verticesForPose(targetId,targetPose);
+     if(target.length!==actual.length)return;
+     const targetCenter=center(target);
+     const centeredActual=actual.map(p=>({x:p.x-actualCenter.x,y:p.y-actualCenter.y}));
+     const centeredTarget=target.map(p=>({x:p.x-targetCenter.x,y:p.y-targetCenter.y}));
+     const shapeError=pointSetRms(centeredActual,centeredTarget);
+     const distance=Math.hypot(actualCenter.x-targetCenter.x,actualCenter.y-targetCenter.y);
+     if(shapeError<5&&distance<13&&(!best||distance<best.distance)){
+       best={distance,dx:targetCenter.x-actualCenter.x,dy:targetCenter.y-actualCenter.y};
+     }
+   });
+   if(best){
+     q.x+=best.dx;
+     q.y+=best.dy;
+     tf(q.el,q);
+     status.textContent="シルエットにぴったり入りました。";
+   }
+   return;
+ }
  if(centerDistance(q)<58 && angleDiff(q.r,t.r)<24 && q.f===t.f){
    Object.assign(q,{x:t.x,y:t.y,r:t.r,f:t.f});
    tf(q.el,q);
@@ -1152,10 +1466,94 @@ function pointSetRms(actualPoints,targetPoints){
  return Math.sqrt(best/Math.max(1,n));
 }
 
+function pointInPolygon(point,polygon){
+ let inside=false;
+ for(let i=0,j=polygon.length-1;i<polygon.length;j=i++){
+   const a=polygon[i],b=polygon[j];
+   const crosses=((a.y>point.y)!==(b.y>point.y))&&
+     point.x<(b.x-a.x)*(point.y-a.y)/((b.y-a.y)||1e-9)+a.x;
+   if(crosses)inside=!inside;
+ }
+ return inside;
+}
+function silhouetteCompletionScore(used,allowTranslation=true){
+ const actualPolygons=used.map(id=>transformedVertices(id));
+ const targetPolygons=used.map(id=>verticesForPose(id,state[id].target));
+ const bounds=polygons=>{
+   const pts=polygons.flat();
+   return {
+     minX:Math.min(...pts.map(p=>p.x)),maxX:Math.max(...pts.map(p=>p.x)),
+     minY:Math.min(...pts.map(p=>p.y)),maxY:Math.max(...pts.map(p=>p.y))
+   };
+ };
+ const actualBounds=bounds(actualPolygons),targetBounds=bounds(targetPolygons);
+ const dx=allowTranslation
+   ?(targetBounds.minX+targetBounds.maxX-actualBounds.minX-actualBounds.maxX)/2
+   :0;
+ const dy=allowTranslation
+   ?(targetBounds.minY+targetBounds.maxY-actualBounds.minY-actualBounds.maxY)/2
+   :0;
+ const shiftedActual=actualPolygons.map(poly=>poly.map(p=>({x:p.x+dx,y:p.y+dy})));
+ const shiftedBounds=bounds(shiftedActual);
+ const sampleBounds={
+   minX:Math.min(targetBounds.minX,shiftedBounds.minX),
+   maxX:Math.max(targetBounds.maxX,shiftedBounds.maxX),
+   minY:Math.min(targetBounds.minY,shiftedBounds.minY),
+   maxY:Math.max(targetBounds.maxY,shiftedBounds.maxY)
+ };
+ const step=7;
+ let different=0,unionSamples=0;
+ for(let y=sampleBounds.minY-step/2;y<=sampleBounds.maxY+step/2;y+=step){
+   for(let x=sampleBounds.minX-step/2;x<=sampleBounds.maxX+step/2;x+=step){
+     const point={x,y};
+     const inTarget=targetPolygons.some(poly=>pointInPolygon(point,poly));
+     const inActual=shiftedActual.some(poly=>pointInPolygon(point,poly));
+     if(inTarget||inActual)unionSamples++;
+     if(inTarget!==inActual)different++;
+   }
+ }
+ if(!unionSamples)return Infinity;
+ return different/unionSamples*300;
+}
+
+function polygonsAreTouching(a,b,tolerance=3){
+ const pointToSegment=(p,v,w)=>{
+   const dx=w.x-v.x,dy=w.y-v.y;
+   const lengthSquared=dx*dx+dy*dy;
+   const t=lengthSquared?Math.max(0,Math.min(1,((p.x-v.x)*dx+(p.y-v.y)*dy)/lengthSquared)):0;
+   return Math.hypot(p.x-(v.x+t*dx),p.y-(v.y+t*dy));
+ };
+ for(const [points,edges] of [[a,b],[b,a]]){
+   for(const point of points){
+     for(let i=0;i<edges.length;i++){
+       if(pointToSegment(point,edges[i],edges[(i+1)%edges.length])<=tolerance)return true;
+     }
+   }
+ }
+ return false;
+}
+function allUsedPiecesConnected(used){
+ if(used.length<2)return true;
+ const reached=new Set([used[0]]);
+ let changed=true;
+ while(changed){
+   changed=false;
+   used.forEach(id=>{
+     if(reached.has(id))return;
+     if([...reached].some(other=>polygonsAreTouching(transformedVertices(id),transformedVertices(other)))){
+       reached.add(id);
+       changed=true;
+     }
+   });
+ }
+ return reached.size===used.length;
+}
+
 function completionScore(){
  const p=current();
  const used=p.used.filter(id=>state[id]?.target);
  if(!used.length)return Infinity;
+ if(!allUsedPiecesConnected(used))return Infinity;
  for(let i=0;i<used.length;i++){
    for(let j=i+1;j<used.length;j++){
      if(polygonsOverlap(transformedVertices(used[i]),transformedVertices(used[j]),2.5)){
@@ -1223,22 +1621,38 @@ function completionScore(){
    best=Math.min(best,Math.sqrt(sum/Math.max(1,count)));
  }
 
- return best;
+ // 中央方式はシルエットの位置そのものと比較する。
+ // 完成図方式は、盤面上のどこに作ってもよいよう平行移動を許可する。
+ if(usesBoardSilhouette()){
+   return silhouetteCompletionScore(used,false);
+ }
+ return Math.min(best,silhouetteCompletionScore(used,true));
 }
 
 function announceCompletion(){
  if(completionAnnounced)return;
  completionAnnounced=true;
  status.className="status ok auto-complete";
- status.textContent="完成です！ ピースが同じ形になりました。";
+ status.textContent=tidyUpActive?"おかたづけ完了！ またこんどやろうね！":photoChallengeActive?"完成です！ 元の写真にもどりました。":"完成です！ ピースが同じ形になりました。";
+ const wasAlreadyCleared=Boolean(cleared[problemKey()]);
  markCleared();
  celebrate();
  playCompleteSound();
+ if(tidyUpActive){
+   const message=document.getElementById("tidyCompleteMessage");
+   if(message)message.hidden=false;
+   if(bgmContext)setTimeout(stopBgm,700);
+ }
+ if(!photoChallengeActive&&!wasAlreadyCleared&&isCurrentLevelCleared()){
+   const completedLevel=level;
+   setTimeout(()=>showLevelClearCelebration(completedLevel),1250);
+ }
 }
 
 function checkCompletionAutomatically(){
  if(!started||scatterAnimating)return false;
  const score=completionScore();
+ const completionThreshold=usesBoardSilhouette()?5:18;
 
  // 一度完成したあと形を崩したら、同じ問題でも再び完成演出できるようにする。
  // 解除側を少し広くして、境界付近で音が連続しないようにする。
@@ -1252,7 +1666,7 @@ function checkCompletionAutomatically(){
  }
 
  // 指で置く教材なので、数ピクセルのずれを許容する。
- if(score<18){
+ if(score<completionThreshold){
    announceCompletion();
    return true;
  }
@@ -1289,7 +1703,7 @@ function showOne(){
  }
  const q=state[id],t=q.target;
  Object.assign(q,{x:t.x,y:t.y,r:t.r,f:t.f});
- tf(q.el,q);pieceLayer.appendChild(q.el);
+ tf(q.el,q);raisePiece(id);
  rememberForUndo(before);
  status.className="status";status.textContent="1つのピースを正しい場所に置きました。";
  scheduleAutoCheck();
@@ -1318,7 +1732,15 @@ const flipBtn=document.getElementById("flip"); if(flipBtn) flipBtn.onclick=()=>{
 };
 const oneHintBtn=document.getElementById("oneHint"); if(oneHintBtn) oneHintBtn.onclick=showOne;
 const undoBtn=document.getElementById("undoBtn"); if(undoBtn) undoBtn.onclick=undoLastOperation;
-const resetBtn=document.getElementById("reset"); if(resetBtn) resetBtn.onclick=()=>{started=false;scatterAnimating=false;completionAnnounced=false;load()};
+function startTidyUp(){
+  tidyUpActive=true;
+  photoChallengeActive=true;
+  document.body.classList.add("photo-challenge-active");
+  started=false;scatterAnimating=false;completionAnnounced=false;hintLevel=0;
+  updatePhotoChallengeButton();buildLevels();load();
+  requestAnimationFrame(()=>requestAnimationFrame(scatterPieces));
+}
+const resetBtn=document.getElementById("reset"); if(resetBtn) resetBtn.onclick=startTidyUp;
 document.getElementById("hint").onclick=()=>{
   hintLevel=(hintLevel+1)%4;
   load();
@@ -1336,6 +1758,29 @@ const GRID_COLORS={
   green:"#7FA08A",
   beige:"#B59F73"
 };
+function applyPlayMode(name,reload=false){
+  const mode=name==="overlay"?"overlay":"reference";
+  document.body.classList.toggle("play-mode-overlay",mode==="overlay");
+  document.body.classList.toggle("play-mode-reference",mode==="reference");
+  const legend=document.querySelector(".board-top-actions .legend");
+  if(legend)legend.textContent=mode==="overlay"
+    ?"中央のシルエットの上で作りましょう"
+    :"完成図を見ながら作りましょう";
+  try{localStorage.setItem("tangramPlayMode",mode)}catch(e){}
+  if(reload){
+    started=false;
+    scatterAnimating=false;
+    completionAnnounced=false;
+    load();
+  }
+}
+const playModeSelect=document.getElementById("playMode");
+let savedPlayMode="overlay";
+try{savedPlayMode=localStorage.getItem("tangramPlayMode")||"overlay"}catch(e){}
+playModeSelect.value=savedPlayMode;
+applyPlayMode(savedPlayMode);
+playModeSelect.addEventListener("change",e=>applyPlayMode(e.target.value,true));
+
 function applySilhouetteColor(name){
   const c=SILHOUETTE_COLORS[name]||SILHOUETTE_COLORS.bluegray;
   document.documentElement.style.setProperty("--silhouette-fill",c.fill);
@@ -1363,21 +1808,193 @@ applyGridColor(savedGrid);
 gridSelect.addEventListener("change",e=>applyGridColor(e.target.value));
 
 function applyPieceStyle(name){
-  const style=name==="wood"?"wood":"colorful";
+  const style=["wood","photo"].includes(name)?name:"colorful";
   document.body.classList.toggle("piece-style-wood",style==="wood");
+  document.body.classList.toggle("piece-style-photo",style==="photo");
+  const photoControls=document.getElementById("photoControls");
+  if(photoControls)photoControls.hidden=style!=="photo";
   try{localStorage.setItem("tangramPieceStyle",style)}catch(e){}
+  updatePieceSurfaceFills();
+  updatePhotoChallengeButton();
+}
+function pieceSurfaceFill(id){
+  return document.body.classList.contains("piece-style-photo")&&photoDataUrl
+    ?`url(#photoPattern-${id})`
+    :COLORS[id];
+}
+function updatePieceSurfaceFills(){
+  Object.keys(state).forEach(id=>state[id]?.el?.setAttribute("fill",pieceSurfaceFill(id)));
+  if(typeof current==="function"&&state&&Object.keys(state).length)renderUsedPieces(current());
+}
+function updatePhotoChallengeButton(){
+  const button=document.getElementById("photoChallengeBtn");
+  if(!button)return;
+  button.hidden=!(document.body.classList.contains("piece-style-photo")&&photoDataUrl);
+  button.textContent=photoChallengeActive?"← 通常問題へ戻る":"▣ 写真を元にもどす";
+}
+function togglePhotoChallenge(){
+  if(!photoDataUrl)return;
+  tidyUpActive=false;
+  photoChallengeActive=!photoChallengeActive;
+  document.body.classList.toggle("photo-challenge-active",photoChallengeActive);
+  started=false;scatterAnimating=false;completionAnnounced=false;hintLevel=0;
+  updatePhotoChallengeButton();buildLevels();load();
+}
+function buildPhotoPatterns(dataUrl){
+  const defs=document.getElementById("photoPatternDefs");
+  if(!defs)return;
+  defs.innerHTML="";
+  ALL_IDS.forEach(id=>{
+    const pattern=document.createElementNS(NS,"pattern");
+    pattern.id=`photoPattern-${id}`;
+    pattern.setAttribute("patternUnits","userSpaceOnUse");
+    pattern.setAttribute("x","0");pattern.setAttribute("y","0");
+    pattern.setAttribute("width","200");pattern.setAttribute("height","200");
+    const image=document.createElementNS(NS,"image");
+    image.setAttribute("href",dataUrl);
+    image.setAttributeNS("http://www.w3.org/1999/xlink","href",dataUrl);
+    image.setAttribute("x","0");image.setAttribute("y","0");
+    image.setAttribute("width","200");image.setAttribute("height","200");
+    image.setAttribute("preserveAspectRatio","none");
+    pattern.appendChild(image);defs.appendChild(pattern);
+  });
+}
+function openPhotoDatabase(){
+  return new Promise((resolve,reject)=>{
+    if(!window.indexedDB){reject(new Error("IndexedDB unavailable"));return}
+    const request=indexedDB.open(PHOTO_DB_NAME,1);
+    request.onupgradeneeded=()=>{
+      const db=request.result;
+      if(!db.objectStoreNames.contains(PHOTO_STORE_NAME))db.createObjectStore(PHOTO_STORE_NAME);
+    };
+    request.onsuccess=()=>resolve(request.result);
+    request.onerror=()=>reject(request.error);
+  });
+}
+async function savePhotoOnDevice(dataUrl,fileName){
+  try{
+    const db=await openPhotoDatabase();
+    await new Promise((resolve,reject)=>{
+      const transaction=db.transaction(PHOTO_STORE_NAME,"readwrite");
+      transaction.objectStore(PHOTO_STORE_NAME).put({dataUrl,fileName,savedAt:Date.now()},"current");
+      transaction.oncomplete=resolve;
+      transaction.onerror=()=>reject(transaction.error);
+    });
+    db.close();
+    return true;
+  }catch(e){return false}
+}
+async function loadPhotoFromDevice(){
+  try{
+    const db=await openPhotoDatabase();
+    const saved=await new Promise((resolve,reject)=>{
+      const request=db.transaction(PHOTO_STORE_NAME,"readonly").objectStore(PHOTO_STORE_NAME).get("current");
+      request.onsuccess=()=>resolve(request.result);
+      request.onerror=()=>reject(request.error);
+    });
+    db.close();
+    if(!saved?.dataUrl)return;
+    photoDataUrl=saved.dataUrl;
+    buildPhotoPatterns(photoDataUrl);
+    updatePieceSurfaceFills();
+    updatePhotoChallengeButton();
+    const statusEl=document.getElementById("photoFileStatus");
+    if(statusEl)statusEl.textContent=`「${saved.fileName||"保存した写真"}」を使用できます（端末内に保存済み）`;
+  }catch(e){}
+}
+function preparePhotoFile(file){
+  if(!file||!file.type.startsWith("image/"))return;
+  const statusEl=document.getElementById("photoFileStatus");
+  if(statusEl)statusEl.textContent="写真を準備しています…";
+  const reader=new FileReader();
+  reader.onload=()=>{
+    const image=new Image();
+    image.onload=async()=>{
+      const size=Math.min(image.naturalWidth,image.naturalHeight);
+      const sx=(image.naturalWidth-size)/2,sy=(image.naturalHeight-size)/2;
+      const canvas=document.createElement("canvas");
+      canvas.width=canvas.height=Math.min(1200,size);
+      const context=canvas.getContext("2d");
+      context.fillStyle="#fff";context.fillRect(0,0,canvas.width,canvas.height);
+      context.drawImage(image,sx,sy,size,size,0,0,canvas.width,canvas.height);
+      photoDataUrl=canvas.toDataURL("image/jpeg",.9);
+      buildPhotoPatterns(photoDataUrl);
+      applyPieceStyle("photo");
+      if(pieceStyleSelect)pieceStyleSelect.value="photo";
+      const saved=await savePhotoOnDevice(photoDataUrl,file.name);
+      if(statusEl)statusEl.textContent=saved
+        ?`「${file.name}」を使用中（端末内に保存しました）`
+        :`「${file.name}」を使用中（この画面を閉じると消えます）`;
+      updatePhotoChallengeButton();
+    };
+    image.onerror=()=>{if(statusEl)statusEl.textContent="この写真を読み込めませんでした。"};
+    image.src=reader.result;
+  };
+  reader.onerror=()=>{if(statusEl)statusEl.textContent="この写真を読み込めませんでした。"};
+  reader.readAsDataURL(file);
 }
 const pieceStyleSelect=document.getElementById("pieceStyle");
 let savedPieceStyle="colorful";
 try{savedPieceStyle=localStorage.getItem("tangramPieceStyle")||"colorful"}catch(e){}
 pieceStyleSelect.value=savedPieceStyle;
 applyPieceStyle(savedPieceStyle);
-pieceStyleSelect.addEventListener("change",e=>applyPieceStyle(e.target.value));
+pieceStyleSelect.addEventListener("change",e=>{
+  const leavingPhotoChallenge=e.target.value!=="photo"&&photoChallengeActive;
+  if(leavingPhotoChallenge){
+    photoChallengeActive=false;
+    tidyUpActive=false;
+    document.body.classList.remove("photo-challenge-active");
+    started=false;
+  }
+  applyPieceStyle(e.target.value);
+  if(leavingPhotoChallenge){buildLevels();load()}
+  const statusEl=document.getElementById("photoFileStatus");
+  if(e.target.value==="photo"&&!photoDataUrl&&statusEl){
+    statusEl.textContent="「写真を選ぶ」を押してください。";
+  }
+});
+const photoFileInput=document.getElementById("photoFileInput");
+if(photoFileInput)photoFileInput.addEventListener("change",e=>preparePhotoFile(e.target.files?.[0]));
+loadPhotoFromDevice();
+const photoChallengeBtn=document.getElementById("photoChallengeBtn");
+if(photoChallengeBtn)photoChallengeBtn.addEventListener("click",togglePhotoChallenge);
+
+const levelClearNextBtn=document.getElementById("levelClearNextBtn");
+if(levelClearNextBtn)levelClearNextBtn.addEventListener("click",()=>closeLevelClearCelebration(true));
+
+const bgmSetting=document.getElementById("bgmSetting");
+const effectsSetting=document.getElementById("effectsSetting");
+try{bgmEnabled=localStorage.getItem("tangramBgm")==="on"}catch(e){}
+try{soundEffectsEnabled=(localStorage.getItem("tangramEffects")||"on")!=="off"}catch(e){}
+if(bgmSetting){
+  bgmSetting.value=bgmEnabled?"on":"off";
+  bgmSetting.addEventListener("change",e=>{
+    bgmEnabled=e.target.value==="on";
+    try{localStorage.setItem("tangramBgm",bgmEnabled?"on":"off")}catch(_){}
+    if(bgmEnabled)startBgm();else stopBgm();
+  });
+}
+if(effectsSetting){
+  effectsSetting.value=soundEffectsEnabled?"on":"off";
+  effectsSetting.addEventListener("change",e=>{
+    soundEffectsEnabled=e.target.value!=="off";
+    try{localStorage.setItem("tangramEffects",soundEffectsEnabled?"on":"off")}catch(_){}
+  });
+}
+
+document.addEventListener("visibilitychange",()=>{
+  if(!bgmContext)return;
+  if(document.hidden)bgmContext.suspend?.();
+  else if(bgmEnabled)bgmContext.resume?.();
+});
 
 
 
 
-document.getElementById("startBtn").onclick=()=>started?restartScatter():scatterPieces();
+document.getElementById("startBtn").onclick=()=>{
+  if(bgmEnabled)startBgm();
+  started?restartScatter():scatterPieces();
+};
 const fullscreenBtn=document.getElementById("fullscreenBtn"); if(fullscreenBtn) fullscreenBtn.onclick=toggleFullscreen;
 const clearStarsBtn=document.getElementById("clearStarsBtn"); if(clearStarsBtn) clearStarsBtn.onclick=clearAllStars;
 document.addEventListener("fullscreenchange",()=>{
@@ -1388,12 +2005,18 @@ document.addEventListener("fullscreenchange",()=>{
       isFullscreen?"⛶ 全画面を終了":"⛶ 全画面";
   }
   [0,80,220,500].forEach(delay=>setTimeout(()=>window.__setTangramAppHeight?.(),delay));
+  [0,80,220,500].forEach(delay=>setTimeout(updateBoardViewBox,delay));
 });
 /* Safari系の全画面状態変化にも追従 */
 document.addEventListener("webkitfullscreenchange",()=>{
   const isFullscreen=!!document.webkitFullscreenElement;
   document.body.classList.toggle("fullscreen-compact",isFullscreen);
+  if(!document.body.classList.contains("ipad-mode")&&fullscreenBtn){
+    fullscreenBtn.textContent=
+      isFullscreen?"⛶ 全画面を終了":"⛶ 全画面";
+  }
   [0,80,220,500].forEach(delay=>setTimeout(()=>window.__setTangramAppHeight?.(),delay));
+  [0,80,220,500].forEach(delay=>setTimeout(updateBoardViewBox,delay));
 });
 
 
@@ -1457,6 +2080,48 @@ document.addEventListener("keydown",e=>{
   if(e.key==="Escape"&&!problemPickerDialog.hidden)closeProblemPicker();
 });
 
+const TUTORIAL_SEEN_KEY="kiyosanTangramTutorialSeenV1";
+const tutorialDialog=document.getElementById("tutorialDialog");
+const tutorialPanel=tutorialDialog.querySelector(".tutorial-panel");
+const tutorialBtn=document.getElementById("tutorialBtn");
+const closeTutorialBtn=document.getElementById("closeTutorialBtn");
+const startTutorialBtn=document.getElementById("startTutorialBtn");
+let tutorialReturnFocus=null;
+function openTutorial(){
+  tutorialReturnFocus=document.activeElement;
+  if(!settingsDialog.hidden){
+    settingsDialog.hidden=true;
+    settingsDialog.classList.remove("closing");
+  }
+  tutorialDialog.hidden=false;
+  tutorialDialog.classList.remove("closing");
+  document.body.classList.add("modal-open");
+  requestAnimationFrame(()=>tutorialPanel.focus());
+}
+function closeTutorial(){
+  if(tutorialDialog.hidden||tutorialDialog.classList.contains("closing"))return;
+  try{localStorage.setItem(TUTORIAL_SEEN_KEY,"1")}catch(e){}
+  tutorialDialog.classList.add("closing");
+  window.setTimeout(()=>{
+    tutorialDialog.hidden=true;
+    tutorialDialog.classList.remove("closing");
+    document.body.classList.remove("modal-open");
+    if(tutorialReturnFocus&&tutorialReturnFocus.focus)tutorialReturnFocus.focus();
+  },180);
+}
+function showTutorialOnFirstVisit(){
+  let seen=false;
+  try{seen=localStorage.getItem(TUTORIAL_SEEN_KEY)==="1"}catch(e){}
+  if(!seen)window.setTimeout(openTutorial,420);
+}
+tutorialBtn.addEventListener("click",openTutorial);
+closeTutorialBtn.addEventListener("click",closeTutorial);
+startTutorialBtn.addEventListener("click",closeTutorial);
+tutorialDialog.querySelector("[data-close-tutorial]").addEventListener("click",closeTutorial);
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"&&!tutorialDialog.hidden)closeTutorial();
+});
+
 
 function applyPieceSize(multiplier){
   pieceSizeMultiplier=Number(multiplier);
@@ -1500,7 +2165,44 @@ document.querySelectorAll(".size-choice").forEach(btn=>{
   document.addEventListener('webkitfullscreenchange',()=>[0,100,300].forEach(t=>setTimeout(updateLayout,t)));
 })();
 
+(function enableMovableReferencePanel(){
+  const panel=document.querySelector(".prototype17-layout .board-target-panel");
+  const handle=panel?.querySelector(".problem-heading");
+  const wrap=document.querySelector(".prototype17-layout .boardWrap");
+  if(!panel||!handle||!wrap)return;
+  let moving=null;
+  handle.addEventListener("pointerdown",event=>{
+    if(!document.body.classList.contains("play-mode-reference"))return;
+    if(event.target.closest("button"))return;
+    event.preventDefault();
+    const panelRect=panel.getBoundingClientRect(),wrapRect=wrap.getBoundingClientRect();
+    moving={id:event.pointerId,x:event.clientX,y:event.clientY,left:panelRect.left-wrapRect.left,top:panelRect.top-wrapRect.top};
+    handle.setPointerCapture?.(event.pointerId);
+    panel.classList.add("panel-moving");
+  });
+  handle.addEventListener("pointermove",event=>{
+    if(!moving||moving.id!==event.pointerId)return;
+    event.preventDefault();
+    const wrapRect=wrap.getBoundingClientRect(),panelRect=panel.getBoundingClientRect();
+    const maxLeft=Math.max(8,wrapRect.width-panelRect.width-8);
+    const maxTop=Math.max(8,wrapRect.height-panelRect.height-8);
+    const left=Math.max(8,Math.min(maxLeft,moving.left+event.clientX-moving.x));
+    const top=Math.max(8,Math.min(maxTop,moving.top+event.clientY-moving.y));
+    panel.style.setProperty("left",`${left}px`,"important");
+    panel.style.setProperty("top",`${top}px`,"important");
+  });
+  const finish=event=>{
+    if(!moving||event.pointerId!==moving.id)return;
+    moving=null;panel.classList.remove("panel-moving");
+  };
+  handle.addEventListener("pointerup",finish);
+  handle.addEventListener("pointercancel",finish);
+})();
+
 renderGrid();buildLevels();load();renderProblemGrid();
+requestAnimationFrame(updateBoardViewBox);
+window.addEventListener("resize",()=>requestAnimationFrame(updateBoardViewBox),{passive:true});
+showTutorialOnFirstVisit();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {

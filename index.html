@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- KIYOSAN-Tangram Ver.2.0 Beta 1 -->
+<!-- KIYOSAN-Tangram Ver.2.0 -->
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
@@ -13,7 +13,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 
-<title>KIYOSAN-Tangram Ver.2.0 Beta 1</title>
+<title>KIYOSAN-Tangram Ver.2.0</title>
 <link rel="stylesheet" href="style.css">
 
 </head>
@@ -21,7 +21,7 @@
 <header class="v2-header">
   <div class="v2-title-row">
     <h1>KIYOSAN-Tangram</h1>
-    <span class="prototype-badge">Ver.2.0 Beta 1</span>
+    <span class="prototype-badge">Ver.2.0</span>
   </div>
   <p class="v2-subtitle">作って考える・形のパズル</p>
   <button id="settingsBtn" class="settings-trigger" type="button"
@@ -37,8 +37,10 @@
         aria-haspopup="dialog" aria-controls="problemPickerDialog">
         問題を選ぶ　<span id="currentProblemLabel">入門 1</span>
       </button>
+      <button id="prev" class="top-action-button problem-step-button" type="button">← まえ</button>
+      <button id="next" class="top-action-button problem-step-button" type="button">つぎ →</button>
       <button id="startBtn" class="top-action-button green">▶ はじめる</button>
-      <button id="reset" class="top-action-button primary">はじめにもどす</button>
+      <button id="reset" class="top-action-button primary">🧩 かたづける</button>
     </div>
   </div>
   <div class="boardWrap">
@@ -53,20 +55,17 @@
         <h3 id="usedPiecesTitle">使うピース</h3>
         <div id="usedPieces" class="used-pieces" aria-live="polite"></div>
       </section>
-      <div class="problem-nav">
-        <button id="prev">← まえ</button>
-        <button id="next">つぎ →</button>
-        <button id="hint" class="orange">💡 ヒント</button>
-      </div>
     </aside>
     <div class="board-canvas-stage" aria-label="ピースを組み立てる場所">
-      <svg id="board" viewBox="0 0 1000 700">
+      <svg id="board" viewBox="-12 -12 1024 724" preserveAspectRatio="xMidYMid meet">
         <defs>
           <!-- 実画像を繰り返して、ピース表面へ木目を貼る -->
           <pattern id="woodPattern" patternUnits="userSpaceOnUse" width="288" height="260">
             <image href="./wood-texture-fine.png" width="288" height="260"
               preserveAspectRatio="none" />
           </pattern>
+          <!-- 選んだ写真から、7ピース共通の正方形画像を切り出す定義をここへ生成する -->
+          <g id="photoPatternDefs"></g>
           <!-- 実画像を赤みのある焦げ茶色へ着色し、ニス状の光沢と立体感を加えるフィルター -->
           <filter id="woodTexture" x="-20%" y="-20%" width="140%" height="150%"
             color-interpolation-filters="sRGB">
@@ -142,13 +141,19 @@
           </filter>
         </defs>
         <g id="gridLayer"></g>
+        <g id="boardTargetLayer"></g>
         <g id="hintLayer"></g>
         <g id="guideLayer"></g>
         <g id="pieceLayer"></g>
       </svg>
+      <div id="tidyCompleteMessage" class="tidy-complete-message" hidden>
+        <strong>おかたづけできました！</strong>
+        <span>またこんどやろうね！</span>
+      </div>
       <div class="board-corner-actions" aria-label="ピース操作">
         <button id="undoBtn" type="button" disabled>↶ ひとつ前</button>
         <button id="flip" type="button">↔ 裏返す</button>
+        <button id="hint" class="orange" type="button">💡 ヒント　☆☆☆</button>
         <button id="oneHint" class="orange" type="button">1ピースヒント</button>
       </div>
     </div>
@@ -178,6 +183,45 @@
     </div>
   </div>
 </div>
+<div id="levelClearDialog" class="modal level-clear-dialog" role="dialog" aria-modal="true"
+  aria-labelledby="levelClearTitle" hidden>
+  <div class="modal-backdrop level-clear-backdrop"></div>
+  <div class="modal-panel level-clear-panel" tabindex="-1">
+    <div class="level-clear-rays" aria-hidden="true"></div>
+    <div class="level-clear-confetti" aria-hidden="true">
+      <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+    </div>
+    <div class="level-clear-crown" aria-hidden="true">👑</div>
+    <p class="level-clear-kicker">LEVEL COMPLETE!</p>
+    <h2 id="levelClearTitle">全問クリア！</h2>
+    <div class="level-clear-stars" aria-hidden="true">★ ★ ★</div>
+    <p id="levelClearMessage">すべての問題をクリアしました。</p>
+    <button id="levelClearNextBtn" class="primary level-clear-next" type="button">つぎのレベルへ</button>
+  </div>
+</div>
+<div id="tutorialDialog" class="modal tutorial-dialog" role="dialog" aria-modal="true"
+  aria-labelledby="tutorialTitle" hidden>
+  <div class="modal-backdrop" data-close-tutorial></div>
+  <div class="modal-panel tutorial-panel" tabindex="-1">
+    <div class="modal-header">
+      <div>
+        <p class="tutorial-kicker">かんたんガイド</p>
+        <h2 id="tutorialTitle">タングラムの遊び方</h2>
+      </div>
+      <button id="closeTutorialBtn" class="modal-close" type="button"
+        aria-label="操作案内を閉じる">×</button>
+    </div>
+    <div class="tutorial-steps">
+      <div class="tutorial-step"><span>1</span><div><strong>はじめる</strong><p>「はじめる」を押すと、7つのピースが広がります。</p></div></div>
+      <div class="tutorial-step"><span>2</span><div><strong>動かす</strong><p>ピースの中央をドラッグして、好きな場所へ動かします。</p></div></div>
+      <div class="tutorial-step"><span>3</span><div><strong>回転する</strong><p>ピースの角をドラッグすると、45度ずつ回転できます。</p></div></div>
+      <div class="tutorial-step"><span>4</span><div><strong>裏返す</strong><p>平行四辺形を選び、右下の「裏返す」を押します。</p></div></div>
+      <div class="tutorial-step"><span>5</span><div><strong>困ったとき</strong><p>「ヒント」や「1ピースヒント」を使って考えましょう。</p></div></div>
+    </div>
+    <p class="tutorial-note">この案内は最初の1回だけ表示されます。</p>
+    <button id="startTutorialBtn" class="primary modal-done" type="button">わかりました　遊んでみる</button>
+  </div>
+</div>
 <div id="settingsDialog" class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsDialogTitle" hidden>
   <div class="modal-backdrop" data-close-settings></div>
   <div class="modal-panel" tabindex="-1">
@@ -187,6 +231,13 @@
     </div>
     <section class="modal-section" aria-labelledby="appearanceTitle">
       <h3 id="appearanceTitle">表示</h3>
+      <div class="silhouette-setting">
+        <label for="playMode">作り方</label>
+        <select id="playMode">
+          <option value="overlay">シルエットの上で作る</option>
+          <option value="reference">完成図を見ながら作る</option>
+        </select>
+      </div>
       <div class="silhouette-setting">
         <label for="silhouetteColor">問題の色</label>
         <select id="silhouetteColor">
@@ -208,6 +259,26 @@
         <select id="pieceStyle">
           <option value="colorful">カラフル</option>
           <option value="wood">木目調</option>
+          <option value="photo">写真</option>
+        </select>
+      </div>
+      <div id="photoControls" class="photo-controls" hidden>
+        <label class="photo-select-button" for="photoFileInput">📷 写真を選ぶ</label>
+        <input id="photoFileInput" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" hidden>
+        <span id="photoFileStatus">写真は端末内だけで使用します。</span>
+      </div>
+      <div class="silhouette-setting">
+        <label for="bgmSetting">BGM</label>
+        <select id="bgmSetting">
+          <option value="off">なし</option>
+          <option value="on">あり（レベル別）</option>
+        </select>
+      </div>
+      <div class="silhouette-setting">
+        <label for="effectsSetting">効果音</label>
+        <select id="effectsSetting">
+          <option value="on">あり</option>
+          <option value="off">なし</option>
         </select>
       </div>
       <div class="piece-size-panel">
@@ -223,6 +294,7 @@
       <h3 id="utilityTitle">操作</h3>
       <div class="utility-buttons">
         <button id="fullscreenBtn" type="button">⛶ 全画面</button>
+        <button id="tutorialBtn" type="button">？ 操作案内を見る</button>
         <button id="clearStarsBtn" type="button">☆ をリセット</button>
       </div>
     </section>
