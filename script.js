@@ -27,7 +27,7 @@
   },{passive:false});
 })();
 
-const APP_VERSION = "2.0";
+const APP_VERSION = "2.1";
 document.getElementById("appVersion").textContent = `Ver.${APP_VERSION}`;
 
 /* 漢字／ひらがな表記。動作中に書き換わる案内文にも適用する。 */
