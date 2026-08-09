@@ -2130,7 +2130,14 @@ body:not(.ipad-mode) .prototype17-layout .toolbar button{
     box-shadow:0 4px 12px rgba(35,49,75,.16);
   }
   .phone-rotate-button{display:inline-flex;align-items:center;justify-content:center}
-  .board-corner-actions{max-width:calc(100% - 12px);flex-wrap:wrap;justify-content:flex-end}
+  .board-corner-actions{max-width:calc(100% - 12px);flex-wrap:nowrap;justify-content:flex-end}
+  .board-corner-actions #hint{min-width:58px}
+}
+@media (max-width:390px){
+  .board-corner-actions{gap:2px;padding:3px}
+  .prototype17-layout .board-corner-actions button{
+    padding:6px 5px!important;font-size:10px!important;
+  }
 }
 
 

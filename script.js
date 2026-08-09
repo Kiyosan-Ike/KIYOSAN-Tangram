@@ -1102,9 +1102,14 @@ function load(){
  if(prevButton)prevButton.disabled=photoChallengeActive||index<=0;
  if(nextButton)nextButton.disabled=photoChallengeActive||index>=currentList().length-1;
  const hintStepTotal=p.used.length*2;
- document.getElementById("hint").textContent=hintLevel>0
-   ? `ヒント　${hintLevel}/${hintStepTotal}`
+ const hintButton=document.getElementById("hint");
+ const compactHintLabel=window.matchMedia("(max-width:590px)").matches;
+ hintButton.textContent=hintLevel>0
+   ? (compactHintLabel?`💡 ${hintLevel}/${hintStepTotal}`:`ヒント　${hintLevel}/${hintStepTotal}`)
    : "💡 ヒント";
+ hintButton.setAttribute("aria-label",hintLevel>0
+   ? `ヒント ${hintLevel}/${hintStepTotal}`
+   : "ヒントを表示");
  renderUsedPieces(p);
  targetLayer.innerHTML="";boardTargetLayer.innerHTML="";hintLayer.innerHTML="";pieceLayer.innerHTML="";guideLayer.innerHTML="";
  state={};selected=null;
