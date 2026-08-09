@@ -627,6 +627,44 @@ function beginGesture(){
 
 
 let effectsAudioContext=null;
+const IS_DESKTOP_MAC=/Macintosh/.test(navigator.userAgent)&&navigator.maxTouchPoints<2;
+let macCompletionAudio=null;
+function createCompletionWavUrl(){
+  const sampleRate=22050,duration=1.35,total=Math.floor(sampleRate*duration);
+  const buffer=new ArrayBuffer(44+total*2),view=new DataView(buffer);
+  const writeText=(offset,text)=>{for(let i=0;i<text.length;i++)view.setUint8(offset+i,text.charCodeAt(i))};
+  writeText(0,"RIFF");view.setUint32(4,36+total*2,true);writeText(8,"WAVE");
+  writeText(12,"fmt ");view.setUint32(16,16,true);view.setUint16(20,1,true);
+  view.setUint16(22,1,true);view.setUint32(24,sampleRate,true);view.setUint32(28,sampleRate*2,true);
+  view.setUint16(32,2,true);view.setUint16(34,16,true);writeText(36,"data");view.setUint32(40,total*2,true);
+  const notes=[
+    {f:523.25,s:0,d:.13,v:.42},{f:659.25,s:.14,d:.13,v:.44},
+    {f:783.99,s:.29,d:.18,v:.46},{f:1046.5,s:.47,d:.72,v:.46},
+    {f:659.25,s:.47,d:.76,v:.18},{f:783.99,s:.482,d:.76,v:.18}
+  ];
+  for(let i=0;i<total;i++){
+    const t=i/sampleRate;
+    let value=0;
+    notes.forEach(note=>{
+      const local=t-note.s;
+      if(local<0||local>note.d)return;
+      const attack=Math.min(1,local/.018),release=Math.min(1,(note.d-local)/.08);
+      const envelope=Math.max(0,Math.min(attack,release));
+      value+=Math.sin(2*Math.PI*note.f*local)*note.v*envelope;
+    });
+    view.setInt16(44+i*2,Math.max(-1,Math.min(1,value))*.82*32767,true);
+  }
+  const bytes=new Uint8Array(buffer);let binary="";
+  for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));
+  return `data:audio/wav;base64,${btoa(binary)}`;
+}
+function getMacCompletionAudio(){
+  if(!macCompletionAudio){
+    macCompletionAudio=new Audio(createCompletionWavUrl());
+    macCompletionAudio.preload="auto";
+  }
+  return macCompletionAudio;
+}
 function getEffectsAudioContext(){
   const AudioCtx=window.AudioContext||window.webkitAudioContext;
   if(!AudioCtx)return null;
@@ -635,6 +673,12 @@ function getEffectsAudioContext(){
 }
 function unlockEffectsAudio(){
   try{
+    if(IS_DESKTOP_MAC){
+      const audio=getMacCompletionAudio();
+      audio.volume=.0001;
+      const started=audio.play();
+      started?.then(()=>{audio.pause();audio.currentTime=0;audio.volume=.82}).catch(()=>{});
+    }
     const ctx=getEffectsAudioContext();
     if(!ctx)return;
     const prime=()=>{
@@ -656,6 +700,14 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden)unlockEffe
 
 function playCompleteSound(){
   if(!soundEffectsEnabled)return;
+  if(IS_DESKTOP_MAC){
+    try{
+      const audio=getMacCompletionAudio();
+      audio.pause();audio.currentTime=0;audio.volume=.82;
+      audio.play().catch(()=>{});
+      return;
+    }catch(e){}
+  }
   try{
     const ctx=getEffectsAudioContext();
     if(!ctx)return;
