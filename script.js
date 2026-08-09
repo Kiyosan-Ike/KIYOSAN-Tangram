@@ -1097,7 +1097,12 @@ function load(){
  document.getElementById("title").textContent=restoreTitle;
  document.getElementById("count").textContent=photoChallengeActive?(tidyUpActive?"おかたづけ":"写真パズル"):`${index+1} / ${currentList().length}`;
  const currentProblemLabel=document.getElementById("currentProblemLabel");
- if(currentProblemLabel)currentProblemLabel.textContent=restoreTitle;
+ if(currentProblemLabel){
+   const compactProblemLabel=window.matchMedia("(max-width:590px)").matches;
+   currentProblemLabel.textContent=compactProblemLabel
+     ? restoreTitle.replace(/^(入門|初級|中級|上級)\s+(\d+)$/, "$1$2")
+     : restoreTitle;
+ }
  const prevButton=document.getElementById("prev"),nextButton=document.getElementById("next");
  if(prevButton)prevButton.disabled=photoChallengeActive||index<=0;
  if(nextButton)nextButton.disabled=photoChallengeActive||index>=currentList().length-1;

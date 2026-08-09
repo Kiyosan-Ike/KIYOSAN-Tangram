@@ -1960,6 +1960,7 @@ body:not(.ipad-mode) .prototype17-layout .toolbar button{
 }
 .problem-picker-trigger:hover{background:#e2ebff}
 .problem-picker-trigger #currentProblemLabel{color:#1e3f9d}
+.problem-picker-label-short{display:none}
 .board-top-actions .top-action-button{
   width:auto;
   min-width:0;
@@ -2079,9 +2080,10 @@ body:not(.ipad-mode) .prototype17-layout .toolbar button{
   }
   .board-card>.top{align-items:flex-start}
   .board-top-actions{
-    flex-wrap:wrap;
+    width:100%;
+    flex-wrap:nowrap;
     justify-content:flex-end;
-    gap:5px;
+    gap:3px;
   }
   .board-top-actions .legend{display:none}
   .problem-picker-trigger{padding:7px 8px;font-size:12px}
@@ -2107,6 +2109,23 @@ body:not(.ipad-mode) .prototype17-layout .toolbar button{
     grid-template-columns:repeat(6,minmax(0,1fr))!important;
     max-height:48vh!important;
   }
+}
+
+@media(max-width:590px){
+  .board-card>.top>h2{display:none}
+  .problem-picker-label-long{display:none}
+  .problem-picker-label-short{display:inline}
+  .board-top-actions .problem-picker-trigger{
+    min-width:0;padding:6px 6px;font-size:10.5px;
+  }
+  .board-top-actions .top-action-button{
+    padding:6px 6px!important;font-size:10px!important;
+  }
+}
+@media(max-width:390px){
+  .board-top-actions{gap:2px}
+  .board-top-actions .problem-picker-trigger{padding:5px 4px;font-size:10px}
+  .board-top-actions .top-action-button{padding:5px 4px!important;font-size:9.5px!important}
 }
 
 /* iPhone縦画面：設定全体を画面内でスクロールし、閉じる操作を常に表示する。 */
