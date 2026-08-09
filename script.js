@@ -1101,8 +1101,10 @@ function load(){
  const prevButton=document.getElementById("prev"),nextButton=document.getElementById("next");
  if(prevButton)prevButton.disabled=photoChallengeActive||index<=0;
  if(nextButton)nextButton.disabled=photoChallengeActive||index>=currentList().length-1;
- const hintStars="★".repeat(hintLevel)+"☆".repeat(3-hintLevel);
- document.getElementById("hint").textContent=`ヒント　${hintStars}`;
+ const hintStepTotal=p.used.length*2;
+ document.getElementById("hint").textContent=hintLevel>0
+   ? `ヒント　${hintLevel}/${hintStepTotal}`
+   : "💡 ヒント";
  renderUsedPieces(p);
  targetLayer.innerHTML="";boardTargetLayer.innerHTML="";hintLayer.innerHTML="";pieceLayer.innerHTML="";guideLayer.innerHTML="";
  state={};selected=null;
@@ -1134,7 +1136,7 @@ function load(){
    targetLayer.appendChild(silhouette);
  }
 
- // 段階的ヒント：完成図の中に正解ピースの境界を重ねる。
+ // 段階的ヒント：まず実線を1ピースずつ増やし、その後に同じ順で色を付ける。
  if(hintLevel>0){
    const vertices=[];
    p.used.forEach(id=>{
@@ -1150,10 +1152,14 @@ function load(){
    const minX=Math.min(...vertices.map(v=>v.x));
    const minY=Math.min(...vertices.map(v=>v.y));
 
-   p.used.forEach(id=>{
+   const outlineCount=Math.min(hintLevel,p.used.length);
+   const colorCount=Math.max(0,hintLevel-p.used.length);
+   p.used.forEach((id,pieceIndex)=>{
+     if(pieceIndex>=outlineCount&&pieceIndex>=colorCount)return;
      const pose=p.poses[id];
-     const h=poly(SHAPES[id],`target-hint target-hint-${hintLevel}`);
-     if(hintLevel===3)h.setAttribute("fill",COLORS[id]);
+     const colored=pieceIndex<colorCount;
+     const h=poly(SHAPES[id],`target-hint target-hint-${colored?3:2}`);
+     if(colored)h.setAttribute("fill",COLORS[id]);
      if(overlayMode){
        h.setAttribute("transform",`translate(${off.x} ${off.y}) scale(${s}) translate(${pose.x} ${pose.y}) rotate(${pose.r}) scale(${pose.f} 1)`);
        boardTargetLayer.appendChild(h);
@@ -1424,8 +1430,14 @@ function snap(id){
 function rotate(d){
  if(!selected)return warn("先にピースを選んでください。");
  const before=capturePieceState();
- state[selected].r=(state[selected].r+d+360)%360;
- tf(state[selected].el,state[selected]);
+ const q=state[selected];
+ // ボタン回転でも、ピースの図形中心を画面上の同じ位置に保つ。
+ const centerBefore=localToBoard(selected,[q.c.x,q.c.y]);
+ q.r=(q.r+d+360)%360;
+ const centerAfter=localToBoard(selected,[q.c.x,q.c.y]);
+ q.x+=centerBefore.x-centerAfter.x;
+ q.y+=centerBefore.y-centerAfter.y;
+ tf(q.el,q);
  snap(selected);
  rememberForUndo(before);
  scheduleAutoCheck();
@@ -1769,7 +1781,8 @@ function startTidyUp(){
 }
 const resetBtn=document.getElementById("reset"); if(resetBtn) resetBtn.onclick=startTidyUp;
 document.getElementById("hint").onclick=()=>{
-  hintLevel=(hintLevel+1)%4;
+  const hintStepTotal=current().used.length*2;
+  hintLevel=(hintLevel+1)%(hintStepTotal+1);
   load();
 };
 document.getElementById("prev").onclick=()=>{if(index<=0)return;index--;hintLevel=0;load()};

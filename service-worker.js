@@ -1,4 +1,4 @@
-const CACHE_NAME = "kiyosan-tangram-v2-0-ios-audio-settings-fix";
+const CACHE_NAME = "kiyosan-tangram-v2-0-progressive-hints-only";
 const APP_FILES = [
   "./",
   "./index.html",
