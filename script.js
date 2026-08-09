@@ -538,20 +538,28 @@ function getEffectsAudioContext(){
   const AudioCtx=window.AudioContext||window.webkitAudioContext;
   if(!AudioCtx)return null;
   if(!effectsAudioContext||effectsAudioContext.state==="closed")effectsAudioContext=new AudioCtx();
-  effectsAudioContext.resume?.().catch?.(()=>{});
   return effectsAudioContext;
 }
 function unlockEffectsAudio(){
   try{
     const ctx=getEffectsAudioContext();
     if(!ctx)return;
-    const buffer=ctx.createBuffer(1,1,ctx.sampleRate);
-    const source=ctx.createBufferSource();
-    source.buffer=buffer;source.connect(ctx.destination);source.start(0);
+    const prime=()=>{
+      if(ctx.state!=="running")return;
+      const osc=ctx.createOscillator(),gain=ctx.createGain();
+      gain.gain.value=.00001;
+      osc.connect(gain);gain.connect(ctx.destination);
+      osc.start();osc.stop(ctx.currentTime+.02);
+    };
+    if(ctx.state==="suspended")ctx.resume().then(prime).catch(()=>{});
+    else prime();
   }catch(e){}
 }
-document.addEventListener("pointerdown",unlockEffectsAudio,{once:true,capture:true});
-document.addEventListener("touchend",unlockEffectsAudio,{once:true,capture:true});
+/* iPhone Safariでは音声が再び停止する場合があるため、各操作時に再開を確認する。 */
+document.addEventListener("pointerdown",unlockEffectsAudio,{capture:true});
+document.addEventListener("touchstart",unlockEffectsAudio,{passive:true,capture:true});
+document.addEventListener("click",unlockEffectsAudio,{capture:true});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)unlockEffectsAudio()});
 
 function playCompleteSound(){
   if(!soundEffectsEnabled)return;
@@ -1998,6 +2006,7 @@ if(effectsSetting){
   effectsSetting.addEventListener("change",e=>{
     soundEffectsEnabled=e.target.value!=="off";
     try{localStorage.setItem("tangramEffects",soundEffectsEnabled?"on":"off")}catch(_){}
+    if(soundEffectsEnabled)unlockEffectsAudio();
   });
 }
 
