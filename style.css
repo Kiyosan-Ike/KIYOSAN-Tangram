@@ -222,6 +222,8 @@ body.modal-open{overflow:hidden}
 .modal-section .piece-size-panel{background:#fff;margin:0}
 .teacher-modal{background:#f6f3ff;border-color:#ded7f4}
 .teacher-modal .utility-buttons{margin:0}
+.teacher-mode-setting{margin-bottom:8px!important;background:#fff}
+body.teacher-mode .board-corner-actions #oneHint{display:inline-flex;align-items:center;justify-content:center}
 .modal-done{width:100%;margin-top:2px}
 
 /* 設定項目が増えても、iPad・パソコンでは全体を一度に見渡せる横型配置にする。 */

@@ -80,7 +80,8 @@ const KANA_PHRASES=[
   ["使って","つかって"],["遊んで","あそんで"],["回","かい"],
   ["通常","つうじょう"],["元","もと"],["空","あ"],["組","く"],
   ["本","ほん"],["指","ゆび"],["入","はい"],["先","さき"],
-  ["選","えら"],["少","すこ"]
+  ["選","えら"],["少","すこ"],["教師","きょうし"],
+  ["使わない","つかわない"],["使う","つかう"]
 ];
 const originalKanjiText=new WeakMap();
 let kanaTextMode=false;
@@ -2107,6 +2108,7 @@ if(levelClearNextBtn)levelClearNextBtn.addEventListener("click",()=>closeLevelCl
 const bgmSetting=document.getElementById("bgmSetting");
 const effectsSetting=document.getElementById("effectsSetting");
 const textStyleSetting=document.getElementById("textStyleSetting");
+const teacherModeSetting=document.getElementById("teacherModeSetting");
 try{bgmEnabled=localStorage.getItem("tangramBgm")==="on"}catch(e){}
 try{soundEffectsEnabled=(localStorage.getItem("tangramEffects")||"on")!=="off"}catch(e){}
 if(bgmSetting){
@@ -2135,6 +2137,23 @@ if(textStyleSetting){
     const value=event.target.value;
     try{localStorage.setItem("tangramTextStyle",value)}catch(e){}
     setKanaTextMode(value==="kana");
+  });
+}
+if(teacherModeSetting){
+  let teacherModeEnabled=false;
+  try{teacherModeEnabled=localStorage.getItem("tangramTeacherMode")==="on"}catch(e){}
+  const applyTeacherMode=enabled=>{
+    teacherModeEnabled=enabled;
+    document.body.classList.toggle("teacher-mode",enabled);
+    const onePieceHintButton=document.getElementById("oneHint");
+    if(onePieceHintButton)onePieceHintButton.hidden=!enabled;
+  };
+  teacherModeSetting.value=teacherModeEnabled?"on":"off";
+  applyTeacherMode(teacherModeEnabled);
+  teacherModeSetting.addEventListener("change",event=>{
+    const enabled=event.target.value==="on";
+    try{localStorage.setItem("tangramTeacherMode",enabled?"on":"off")}catch(e){}
+    applyTeacherMode(enabled);
   });
 }
 

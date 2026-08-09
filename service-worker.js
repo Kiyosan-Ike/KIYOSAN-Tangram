@@ -1,4 +1,4 @@
-const CACHE_NAME = "kiyosan-tangram-v2-0-clean-board-toolbar";
+const CACHE_NAME = "kiyosan-tangram-v2-0-teacher-mode";
 const APP_FILES = [
   "./",
   "./index.html",
