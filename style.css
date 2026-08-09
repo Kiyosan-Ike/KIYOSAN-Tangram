@@ -2007,6 +2007,23 @@ body:not(.ipad-mode) .prototype17-layout .toolbar button{
   cursor:default;
   box-shadow:none;
 }
+.phone-rotate-button{display:none}
+
+/* iPad縦画面の全画面時は、上部操作を一列に収める。 */
+@media (orientation:portrait) and (min-width:591px) and (max-width:900px){
+  body.ipad-mode.app-fullscreen .board-card>.top>h2,
+  body.ipad-mode.app-fullscreen .board-top-actions>.legend{display:none!important}
+  body.ipad-mode.app-fullscreen .board-card>.top{display:block!important;margin:0 4px 4px!important}
+  body.ipad-mode.app-fullscreen .board-top-actions{
+    width:100%!important;display:grid!important;
+    grid-template-columns:minmax(170px,1fr) auto auto auto auto!important;
+    gap:4px!important;
+  }
+  body.ipad-mode.app-fullscreen .problem-picker-trigger{min-width:0;padding:6px 8px;font-size:11px}
+  body.ipad-mode.app-fullscreen .board-top-actions .top-action-button{
+    min-height:34px!important;padding:5px 7px!important;font-size:10.5px!important;
+  }
+}
 .problem-picker-panel{
   width:min(760px,calc(100vw - 24px));
   max-height:min(82vh,760px);
@@ -2090,6 +2107,31 @@ body:not(.ipad-mode) .prototype17-layout .toolbar button{
     grid-template-columns:repeat(6,minmax(0,1fr))!important;
     max-height:48vh!important;
   }
+}
+
+/* iPhone縦画面：設定全体を画面内でスクロールし、閉じる操作を常に表示する。 */
+@media (max-width:590px) and (orientation:portrait){
+  #settingsDialog.modal{
+    padding:max(6px,env(safe-area-inset-top)) 6px max(6px,env(safe-area-inset-bottom));
+    place-items:stretch;
+  }
+  #settingsDialog .modal-panel{
+    width:100%;height:100%;max-height:none;border-radius:16px;
+    padding:0 12px calc(76px + env(safe-area-inset-bottom));
+    overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  }
+  #settingsDialog .modal-header{
+    position:sticky;top:0;z-index:5;margin:0 -2px 8px;padding:11px 2px 9px;
+    background:rgba(255,255,255,.98);border-bottom:1px solid #e1e7f0;
+  }
+  #settingsDialog .modal-section{padding:10px;margin-bottom:8px}
+  #settingsDialog #doneSettingsBtn{
+    position:fixed;z-index:1002;left:12px;right:12px;
+    bottom:calc(10px + env(safe-area-inset-bottom));width:auto;margin:0;
+    box-shadow:0 6px 18px rgba(35,49,75,.24);
+  }
+  .phone-rotate-button{display:inline-flex;align-items:center;justify-content:center}
+  .board-corner-actions{max-width:calc(100% - 12px);flex-wrap:wrap;justify-content:flex-end}
 }
 
 

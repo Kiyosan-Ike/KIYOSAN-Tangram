@@ -533,11 +533,31 @@ function beginGesture(){
 }
 
 
+let effectsAudioContext=null;
+function getEffectsAudioContext(){
+  const AudioCtx=window.AudioContext||window.webkitAudioContext;
+  if(!AudioCtx)return null;
+  if(!effectsAudioContext||effectsAudioContext.state==="closed")effectsAudioContext=new AudioCtx();
+  effectsAudioContext.resume?.().catch?.(()=>{});
+  return effectsAudioContext;
+}
+function unlockEffectsAudio(){
+  try{
+    const ctx=getEffectsAudioContext();
+    if(!ctx)return;
+    const buffer=ctx.createBuffer(1,1,ctx.sampleRate);
+    const source=ctx.createBufferSource();
+    source.buffer=buffer;source.connect(ctx.destination);source.start(0);
+  }catch(e){}
+}
+document.addEventListener("pointerdown",unlockEffectsAudio,{once:true,capture:true});
+document.addEventListener("touchend",unlockEffectsAudio,{once:true,capture:true});
+
 function playCompleteSound(){
   if(!soundEffectsEnabled)return;
   try{
-    const AudioCtx=window.AudioContext||window.webkitAudioContext;
-    const ctx=new AudioCtx();
+    const ctx=getEffectsAudioContext();
+    if(!ctx)return;
     const master=ctx.createGain();
     master.gain.value=.72;
     master.connect(ctx.destination);
@@ -578,15 +598,15 @@ function playCompleteSound(){
       osc.connect(gain);gain.connect(master);
       osc.start(start);osc.stop(start+.79);
     });
-    setTimeout(()=>ctx.close(),1500);
   }catch(e){}
 }
 
 function playLevelClearSound(){
   if(!soundEffectsEnabled)return;
   try{
-    const AudioCtx=window.AudioContext||window.webkitAudioContext;
-    const ctx=new AudioCtx(),master=ctx.createGain(),now=ctx.currentTime;
+    const ctx=getEffectsAudioContext();
+    if(!ctx)return;
+    const master=ctx.createGain(),now=ctx.currentTime;
     master.gain.value=.62;master.connect(ctx.destination);
     const melody=[523.25,659.25,783.99,1046.50,783.99,1046.50,1318.51];
     const starts=[0,.12,.24,.38,.54,.66,.80];
@@ -599,7 +619,6 @@ function playLevelClearSound(){
       gain.gain.exponentialRampToValueAtTime(.0001,start+(long?.95:.20));
       osc.connect(gain);gain.connect(master);osc.start(start);osc.stop(start+(long?1:.24));
     });
-    setTimeout(()=>ctx.close(),2100);
   }catch(e){}
 }
 
@@ -717,8 +736,8 @@ function refreshBgmForLevel(){
 function playScatterSound(){
   if(!soundEffectsEnabled)return;
   try{
-    const AudioCtx=window.AudioContext||window.webkitAudioContext;
-    const ctx=new AudioCtx();
+    const ctx=getEffectsAudioContext();
+    if(!ctx)return;
     const now=ctx.currentTime;
 
     // 「バラッ」と広がる感じの、短いノイズ＋下降音。
@@ -761,7 +780,6 @@ function playScatterSound(){
     osc.start(now);
     osc.stop(now+.3);
 
-    setTimeout(()=>ctx.close(),700);
   }catch(e){}
 }
 
@@ -1215,7 +1233,8 @@ function startDrag(e,id){
  const nearest=Math.min(...rotationVertices.map(v=>Math.hypot(p.x-v.x,p.y-v.y)));
  const center=localToBoard(id,[q.c.x,q.c.y]);
  // 見た目は変えず、指・Apple Pencil・マウスごとに回転判定を広げる。
- const baseRotateHitRadius=e.pointerType==="touch"?32:e.pointerType==="pen"?27:21;
+ const phoneTouch=e.pointerType==="touch"&&window.matchMedia("(max-width:590px)").matches;
+ const baseRotateHitRadius=phoneTouch?38:e.pointerType==="touch"?32:e.pointerType==="pen"?27:21;
  const rotateHitRadius=baseRotateHitRadius+(isWoodStyle?8:0);
 
  // 最も近い頂点が判定範囲に入ったときは回転。それ以外は移動。
