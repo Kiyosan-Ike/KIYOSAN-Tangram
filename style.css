@@ -1964,6 +1964,7 @@ body:not(.ipad-mode) .prototype17-layout .toolbar button{
 }
 .board-top-actions{
   display:flex;
+  width:100%;
   align-items:center;
   justify-content:flex-end;
   gap:7px;
