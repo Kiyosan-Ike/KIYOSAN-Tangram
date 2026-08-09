@@ -644,7 +644,7 @@ function unlockEffectsAudio(){
       osc.connect(gain);gain.connect(ctx.destination);
       osc.start();osc.stop(ctx.currentTime+.02);
     };
-    if(ctx.state==="suspended")ctx.resume().then(prime).catch(()=>{});
+    if(ctx.state!=="running")ctx.resume().then(prime).catch(()=>{});
     else prime();
   }catch(e){}
 }
@@ -659,6 +659,12 @@ function playCompleteSound(){
   try{
     const ctx=getEffectsAudioContext();
     if(!ctx)return;
+    if(ctx.state!=="running"){
+      ctx.resume?.().then(()=>{
+        if(ctx.state==="running")playCompleteSound();
+      }).catch(()=>{});
+      return;
+    }
     const master=ctx.createGain();
     master.gain.value=.72;
     master.connect(ctx.destination);
@@ -707,6 +713,12 @@ function playLevelClearSound(){
   try{
     const ctx=getEffectsAudioContext();
     if(!ctx)return;
+    if(ctx.state!=="running"){
+      ctx.resume?.().then(()=>{
+        if(ctx.state==="running")playLevelClearSound();
+      }).catch(()=>{});
+      return;
+    }
     const master=ctx.createGain(),now=ctx.currentTime;
     master.gain.value=.62;master.connect(ctx.destination);
     const melody=[523.25,659.25,783.99,1046.50,783.99,1046.50,1318.51];
@@ -839,6 +851,12 @@ function playScatterSound(){
   try{
     const ctx=getEffectsAudioContext();
     if(!ctx)return;
+    if(ctx.state!=="running"){
+      ctx.resume?.().then(()=>{
+        if(ctx.state==="running")playScatterSound();
+      }).catch(()=>{});
+      return;
+    }
     const now=ctx.currentTime;
 
     // 「バラッ」と広がる感じの、短いノイズ＋下降音。
@@ -1779,6 +1797,7 @@ function announceCompletion(){
  const wasAlreadyCleared=Boolean(cleared[problemKey()]);
  markCleared();
  celebrate();
+ unlockEffectsAudio();
  playCompleteSound();
  if(tidyUpActive){
    const message=document.getElementById("tidyCompleteMessage");
