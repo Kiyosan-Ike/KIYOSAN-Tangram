@@ -1,4 +1,4 @@
-const CACHE_NAME = "kiyosan-tangram-v2-0-single-row-phone-menus";
+const CACHE_NAME = "kiyosan-tangram-v2-0-wide-settings-dialog";
 const APP_FILES = [
   "./",
   "./index.html",

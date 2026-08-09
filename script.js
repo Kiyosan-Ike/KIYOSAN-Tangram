@@ -30,6 +30,98 @@
 const APP_VERSION = "2.0";
 document.getElementById("appVersion").textContent = `Ver.${APP_VERSION}`;
 
+/* 漢字／ひらがな表記。動作中に書き換わる案内文にも適用する。 */
+const KANA_PHRASES=[
+  ["Apple Distinguished Educator","Apple Distinguished Educator"],
+  ["平行四辺形","へいこうしへんけい"],["大三角形","だいさんかくけい"],
+  ["中三角形","ちゅうさんかくけい"],["小三角形","しょうさんかくけい"],
+  ["正方形","せいほうけい"],["三角形","さんかくけい"],["四辺形","しへんけい"],
+  ["組み立てエリア","くみたてエリア"],["問題を選ぶ","もんだいをえらぶ"],
+  ["完成図","かんせいず"],["使うピース","つかうピース"],["問題一覧","もんだいいちらん"],
+  ["全問クリア","ぜんもんクリア"],["操作案内","そうさあんない"],["遊び方","あそびかた"],
+  ["作り方","つくりかた"],["問題の色","もんだいのいろ"],["方眼の色","ほうがんのいろ"],
+  ["木目調","きめちょう"],["写真を選ぶ","しゃしんをえらぶ"],["端末内","たんまつない"],
+  ["効果音","こうかおん"],["ピースの大きさ","ピースのおおきさ"],
+  ["全画面を終了","ぜんがめんをしゅうりょう"],["全画面","ぜんがめん"],
+  ["表示","ひょうじ"],["設定","せってい"],["操作","そうさ"],["標準","ひょうじゅん"],
+  ["特大","とくだい"],["入門","にゅうもん"],["初級","しょきゅう"],
+  ["中級","ちゅうきゅう"],["上級","じょうきゅう"],["写真","しゃしん"],
+  ["青灰色","せいかいしょく"],["緑","みどり"],["問題","もんだい"],
+  ["完成","かんせい"],["回転","かいてん"],["裏返す","うらがえす"],
+  ["左回転","ひだりかいてん"],["右回転","みぎかいてん"],["自動","じどう"],
+  ["中央","ちゅうおう"],["頂点","ちょうてん"],["方眼","ほうがん"],
+  ["交点","こうてん"],["吸着","きゅうちゃく"],["選んだ","えらんだ"],
+  ["選び","えらび"],["選ぶ","えらぶ"],["正しい","ただしい"],["場所","ばしょ"],
+  ["移動","いどう"],["使用","しよう"],["保存","ほぞん"],["準備","じゅんび"],
+  ["読み込めません","よみこめません"],["記録","きろく"],["星","ほし"],
+  ["達成状況","たっせいじょうきょう"],["番号","ばんごう"],["実線","じっせん"],
+  ["案内","あんない"],["最初","さいしょ"],["一度","いちど"],["一枚","いちまい"],
+  ["1枚","1まい"],["全体","ぜんたい"],["周り","まわり"],["答え","こたえ"],
+  ["通常問題","つうじょうもんだい"],["元の写真","もとのしゃしん"],
+  ["同じ形","おなじかたち"],["空き場所","あきばしょ"],["完了","かんりょう"],
+  ["知らせ","しらせ"],["閉じる","とじる"],["閉じ","とじ"],["開く","ひらく"],
+  ["作って","つくって"],["作り","つくり"],["作る","つくる"],
+  ["考える","かんがえる"],["考え","かんがえ"],["形","かたち"],
+  ["動かす","うごかす"],["動かし","うごかし"],["動き","うごき"],
+  ["動いて","うごいて"],["動いて","うごいて"],["動","うご"],
+  ["広がります","ひろがります"],["広がっています","ひろがっています"],
+  ["広げ","ひろげ"],["押す","おす"],["押し","おし"],["見ながら","みながら"],
+  ["見て","みて"],["見る","みる"],["鳴り","なり"],["踊り","おどり"],
+  ["音","おと"],["辺","へん"],["角","かど"],["度","ど"],
+  ["大きさ","おおきさ"],["大","だい"],["中","ちゅう"],["小","しょう"],
+  ["別","べつ"],["色","いろ"],["上","うえ"],["下","した"],["右","みぎ"],
+  ["左","ひだり"],["前","まえ"],["後","あと"],["進む","すすむ"],
+  ["戻る","もどる"],["済み","ずみ"],["未","み"],["消します","けします"],
+  ["消えます","きえます"],["分かります","わかります"],["分かれます","わかれます"],
+  ["困った","こまった"],["好きな","すきな"],["合わせて","あわせて"],
+  ["合いました","あいました"],["組み合わせて","くみあわせて"],
+  ["組み立てています","くみたてています"],["置きました","おきました"],
+  ["置く","おく"],["退避","たいひ"],["読","よ"],["画面","がめん"],
+  ["使って","つかって"],["遊んで","あそんで"],["回","かい"],
+  ["通常","つうじょう"],["元","もと"],["空","あ"],["組","く"],
+  ["本","ほん"],["指","ゆび"],["入","はい"],["先","さき"],
+  ["選","えら"],["少","すこ"]
+];
+const originalKanjiText=new WeakMap();
+let kanaTextMode=false;
+function textToKana(text){
+  return KANA_PHRASES.reduce((result,[from,to])=>result.split(from).join(to),text);
+}
+function isKanaExempt(node){
+  return node.parentElement?.closest("[data-kana-exempt]");
+}
+function applyKanaToTextNode(node){
+  if(node.nodeType!==Node.TEXT_NODE||isKanaExempt(node)||!/[一-龯々]/.test(node.nodeValue||""))return;
+  const current=node.nodeValue;
+  const original=originalKanjiText.get(node);
+  if(original&&current===textToKana(original))return;
+  originalKanjiText.set(node,current);
+  node.nodeValue=textToKana(current);
+}
+function walkTextNodes(root,callback){
+  const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+  let node;while((node=walker.nextNode()))callback(node);
+}
+function setKanaTextMode(enabled){
+  kanaTextMode=enabled&&!window.matchMedia("(max-width:590px)").matches;
+  document.body.classList.toggle("kana-text-mode",kanaTextMode);
+  if(kanaTextMode)walkTextNodes(document.body,applyKanaToTextNode);
+  else walkTextNodes(document.body,node=>{
+    const original=originalKanjiText.get(node);
+    if(original!=null)node.nodeValue=original;
+  });
+}
+new MutationObserver(mutations=>{
+  if(!kanaTextMode)return;
+  mutations.forEach(mutation=>{
+    if(mutation.type==="characterData")applyKanaToTextNode(mutation.target);
+    mutation.addedNodes.forEach(node=>{
+      if(node.nodeType===Node.TEXT_NODE)applyKanaToTextNode(node);
+      else if(node.nodeType===Node.ELEMENT_NODE)walkTextNodes(node,applyKanaToTextNode);
+    });
+  });
+}).observe(document.body,{subtree:true,childList:true,characterData:true});
+
 /* Prototype 8：Apple Pencilを含むpointer入力でボタンを確実に反応させる */
 (function enablePointerButtons(){
   const selector='button,[role="button"]';
@@ -2014,6 +2106,7 @@ if(levelClearNextBtn)levelClearNextBtn.addEventListener("click",()=>closeLevelCl
 
 const bgmSetting=document.getElementById("bgmSetting");
 const effectsSetting=document.getElementById("effectsSetting");
+const textStyleSetting=document.getElementById("textStyleSetting");
 try{bgmEnabled=localStorage.getItem("tangramBgm")==="on"}catch(e){}
 try{soundEffectsEnabled=(localStorage.getItem("tangramEffects")||"on")!=="off"}catch(e){}
 if(bgmSetting){
@@ -2030,6 +2123,18 @@ if(effectsSetting){
     soundEffectsEnabled=e.target.value!=="off";
     try{localStorage.setItem("tangramEffects",soundEffectsEnabled?"on":"off")}catch(_){}
     if(soundEffectsEnabled)unlockEffectsAudio();
+  });
+}
+if(textStyleSetting){
+  let savedTextStyle="kanji";
+  try{savedTextStyle=localStorage.getItem("tangramTextStyle")||"kanji"}catch(e){}
+  if(window.matchMedia("(max-width:590px)").matches)savedTextStyle="kanji";
+  textStyleSetting.value=savedTextStyle;
+  setKanaTextMode(savedTextStyle==="kana");
+  textStyleSetting.addEventListener("change",event=>{
+    const value=event.target.value;
+    try{localStorage.setItem("tangramTextStyle",value)}catch(e){}
+    setKanaTextMode(value==="kana");
   });
 }
 
