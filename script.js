@@ -127,6 +127,19 @@ new MutationObserver(mutations=>{
 (function enablePointerButtons(){
   const selector='button,[role="button"]';
   let active=null;
+  let lastPenActivation=null;
+  // iPad SafariではApple Pencilのpointerup後に通常のclickも続けて届くことがある。
+  // 補助的に発行したclickだけを有効にし、直後の重複clickは取り除く。
+  document.addEventListener('click',e=>{
+    if(!e.isTrusted||!lastPenActivation)return;
+    const {el,time}=lastPenActivation;
+    if(performance.now()-time>700){lastPenActivation=null;return;}
+    if(e.target===el||el.contains(e.target)){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      lastPenActivation=null;
+    }
+  },true);
   document.addEventListener('pointerdown',e=>{
     const el=e.target.closest(selector);
     if(!el||el.disabled)return;
@@ -142,6 +155,7 @@ new MutationObserver(mutations=>{
     if(hit&&(hit===el||el.contains(hit))){
       if(e.pointerType==='pen'){
         e.preventDefault();
+        lastPenActivation={el,time:performance.now()};
         el.click();
       }
     }
@@ -1923,7 +1937,12 @@ function showOne(){
 }
 const leftBtn=document.getElementById("left"); if(leftBtn) leftBtn.onclick=()=>rotate(-45);
 const rightBtn=document.getElementById("right"); if(rightBtn) rightBtn.onclick=()=>rotate(45);
+let lastFlipAt=0;
 const flipBtn=document.getElementById("flip"); if(flipBtn) flipBtn.onclick=()=>{
+  // iPadの指・Apple Pencilで同じタップが二重に届いても、反転を1回だけ行う。
+  const flipAt=performance.now();
+  if(flipAt-lastFlipAt<350)return;
+  lastFlipAt=flipAt;
   if(!selected){
     warn("先にピースを選んでください。");
     return;

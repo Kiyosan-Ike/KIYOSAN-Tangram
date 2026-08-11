@@ -1,4 +1,4 @@
-const CACHE_NAME = "kiyosan-tangram-v2-1";
+const CACHE_NAME = "kiyosan-tangram-v2-1-ipad-flip";
 const APP_FILES = [
   "./",
   "./index.html",
